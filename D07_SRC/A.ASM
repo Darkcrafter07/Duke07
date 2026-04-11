@@ -39,6 +39,14 @@ EXTRN _espbak : dword
 EXTRN _pow2char : near
 EXTRN _pow2long : near
 
+EXTRN _gbuf : dword
+EXTRN _gpinc : dword
+EXTRN _glogx : dword
+EXTRN _glogy : dword
+EXTRN _globalzd : dword
+EXTRN _slopeisfar : byte
+EXTRN _reciptabletextureint : near
+
 CODE SEGMENT PUBLIC USE32 'DATA'
 ASSUME cs:CODE,ds:CODE
 
@@ -466,7 +474,7 @@ fixchain1b: add edi, 320
 	add edx, eax
 	dec ecx
 	mov bl, byte ptr [ebp+ebx]
-	mov byte ptr [edi], bl
+	mov byte ptr [edi], bl     ; - main pixel write line
 	jnz short beginvline
 	pop ebp
 	mov eax, edx
@@ -1614,8 +1622,8 @@ BITSOFPRECISIONPOW equ 8
 ;ebp:  ----------------------------temp
 
 ALIGN 16
-PUBLIC setupslopevlin2_
-setupslopevlin2_:
+PUBLIC setupslopevlin0_
+setupslopevlin0_:
 	mov dword ptr [slop3+2], edx ;ptr
 	mov dword ptr [slop7+2], edx ;ptr
 	mov dword ptr [slop4+2], esi ;tptr
@@ -1638,12 +1646,12 @@ setupslopevlin2_:
 	ret
 
 ALIGN 16
-PUBLIC slopevlin2_
-slopevlin2_:
+PUBLIC slopevlin0_
+slopevlin0_:
 	push ebp
 	xor ecx, ecx
 
-slopevlin2begin:
+slopevlin0begin:
 	mov ebp, edx
 slop1: and ebp, 88000088h                ;ybits...xbits
 slop2: rol ebp, 6                        ;ybits
@@ -1663,12 +1671,11 @@ slop8: mov ah, byte ptr [ecx+88888888h]  ;paloffs
 	dec bl
 	mov word ptr [edi], ax
 slop9: lea edi, [edi+88888888h]          ;pinc
-	jnz short slopevlin2begin
+	jnz short slopevlin0begin
 
 	pop ebp
 	mov eax, edi
 	ret
-
 
 ALIGN 16
 PUBLIC setupslopevlin_
@@ -1790,6 +1797,280 @@ slopmach4: mov ebx, dword ptr [esp+88888888h]
 	mov esp, _espbak
 	mov ebp, _ebpbak
 	ret
+
+; === integer slopes drawing - start ==========================================
+; PROJECT: DUKE07 (486SX Optimized Engine)
+; MODULE: INTEGER SLOPE RENDERING (NON-FPU)
+; AUTHOR: Darkcrafter07
+; =============================================================================
+; DESCRIPTION:
+; This is a high-performance vertical slope renderer designed specifically 
+; for the 80486SX CPU (No FPU). It uses:
+; 1. Adaptive Step LOD: 8px (Far), 16px (Mid), 32px (Near) based on abs(bz).
+; 2. Relative Stepping: Coordinates (u,v) are updated via ADD, not IMUL.
+; 3. SMC (Self-Modifying Code): Patches texture base, shifts, and screen pitch.
+; 4. Table-driven Reciprocals: Prevents heavy IDIV cycles.
+;
+; CRITICAL SAFETY RULES:
+; - DO NOT USE ALIGN 16 before inner loops; it may insert '00' padding (Crash).
+; - ALWAYS BALANCE PUSH/POP: EBX is a critical register for Watcom.
+; - KRECIP PROTECTION: Prevents DIV 0 and Overflow if |bz| is too small.
+; - COORDINATE SYNC: Baseline reset (imul) is done per column/block to fix 
+;   the "Nice-Dice" (jitter) effect caused by precision loss in long steps.
+; =============================================================================
+
+slp2asm2step        dd 0
+slp2asm3next        dd 0
+slp2bxsave          dd 0
+slp2bysave          dd 0
+slp2psave           dd 0
+slop2palptrsave     dd 0
+slp2palptrmem       dd 0
+slp2istart          dd 0
+slp2inext           dd 0
+slp2tmpu            dd 0
+slp2tmpv            dd 0
+slp2tmpdi           dd 0
+slp2tmpdu           dd 0
+slp2tmpdv           dd 0
+slp2tmpbzparm       dd 0
+slp2tmpsign         dd 0
+slp2tmpduval        dd 0
+slp2stepcl          db 4
+
+ALIGN 16 ; Using 16-byte alignment to prevent 486 prefetch queue crashes
+PUBLIC setupslopevlin2_
+setupslopevlin2_:
+	; SMC: Patching the inner loop instructions for specific texture/screen params
+	mov dword ptr [slopmachptrb+1], ebx    ; Patch texture base address
+	mov dword ptr [slopmachpincb+2], ecx   ; Patch screen pitch (pinc)
+
+	mov edx, 32
+	sub dl, al                             
+	mov byte ptr [slopmachushiftb+2], dl   ; Patch U-coordinate shift amount
+
+	mov byte ptr [slopmachlogyb+2], ah     ; Patch U-coordinate LogY multiplier
+
+	mov edx, 32
+	sub dl, ah                             
+	mov byte ptr [slopmachvshiftb+2], dl   ; Patch V-coordinate shift amount
+	ret
+
+ALIGN 16
+PUBLIC slopevlin2_
+slopevlin2_:
+	push ebp
+	push esi
+	push edi
+	push ebx                      ; EBX must be preserved for Watcom environment
+	mov [_ebpbak], ebp
+	mov [_espbak], esp
+
+	; 1. Backup parameters from registers to memory
+	mov [slp2psave], eax          ; EAX = screen pointer (p)
+	mov [_asm3], ebx              ; EBX = start distance (bz)
+	mov [slop2palptrsave], ecx    ; ECX = palette array pointer
+	mov [_asm4], edx              ; EDX = pixel count (cnt)
+	mov [slp2bxsave], esi         ; ESI = base x
+	mov [slp2bysave], edi         ; EDI = base y
+
+	; 2. Initial perspective calculation: i = 1 / (bz >> 6)
+	mov eax, ebx
+	sar eax, 6
+	call slp2krecip
+	mov [slp2istart], eax         ; Store starting reciprocal
+
+	; 3. BASELINE RESET: Calculate absolute U,V for the start of the column
+	; This prevents coordinate drifting (jitter) by resyncing every column
+	; this block was placed before bigslopeloop16 to give 10% speed boost
+	mov eax, [slp2istart]
+	mov edx, eax
+	imul eax, [_globalx3]         ; u = bx + i * globalx3
+	add eax, [slp2bxsave]
+	mov esi, eax                  ; ESI = current U
+
+	imul edx, [_globaly3]         ; v = by + i * globaly3
+	add edx, [slp2bysave]
+	mov edi, edx                  ; EDI = current V
+
+bigslopeloop16:
+	mov eax, [_asm4]
+	test eax, eax
+	jle slp2exit                  ; Exit if no pixels left to draw
+
+	; --- 3-stage adaptive step logic with abs(bz) (8-16-32 pixels) ---
+	; Dynamically changes the precision based on distance to save CPU cycles
+	mov al, [_slopeisfar]          ; Check global flag: is the whole sector far?
+	test al, al
+	jnz short slp2step8           ; If far, force 8px step for maximum precision
+
+	mov eax, [_asm3]               ; Check current distance (bz)
+	test eax, eax
+	jns short slp2absok
+	neg eax                        ; eax = abs(bz)
+slp2absok:
+	
+	mov edx, eax                   ; Use absolute distance for thresholding
+	cmp edx, 36000
+	jl short slp2step8            ; Far field: use 8px step
+
+	cmp edx, 56000
+	jl short slp2step16           ; Mid field: use 16px step
+
+	; Near field: use turbo 32px step
+	mov ecx, 32                    
+	mov byte ptr [slp2stepcl], 5   ; Set shift for div by 32 (2^5)
+	jmp short slp2applystep
+
+slp2step16:
+	mov ecx, 16
+	mov byte ptr [slp2stepcl], 4   ; Set shift for div by 16 (2^4)
+	jmp short slp2applystep
+
+slp2step8:
+	mov ecx, 8
+	mov byte ptr [slp2stepcl], 3   ; Set shift for div by 8 (2^3)
+
+slp2applystep:
+	mov eax, [_asm4]
+	cmp ecx, eax
+	jle short slp2stepok
+	mov ecx, eax                  ; Clamp step to remaining pixel count (tail)
+slp2stepok:
+	mov [slp2asm2step], ecx
+    
+	; 4. Calculate inext & di: determine perspective change for this block
+	mov eax, [_asm1]              ; bzinc
+	sar eax, 3
+	imul ecx                      ; bzinc * step
+	add eax, [_asm3]              ; bz_next = bz + (bzinc * step)
+	mov [slp2asm3next], eax
+
+	sar eax, 6
+	call slp2krecip
+	mov [slp2inext], eax          ; Get reciprocal for the end of the block
+	sub eax, [slp2istart]
+	mov [slp2tmpdi], eax          ; di = i_next - i_start (delta perspective)
+
+	; 5. Calculate du, dv: horizontal/vertical texture increments
+	mov cl, [slp2stepcl]
+	mov eax, [_globalx3]
+	imul dword ptr [slp2tmpdi]
+	shrd eax, edx, cl             ; Precision division using 64-bit intermediate
+	mov [slp2tmpdu], eax
+
+	mov eax, [_globaly3]
+	imul dword ptr [slp2tmpdi]
+	shrd eax, edx, cl
+	mov [slp2tmpdv], eax
+
+	; 6. RENDERER: Hot inner loop for pixel drawing
+	mov ebp, [slp2psave]          ; EBP = Screen address
+	mov ebx, [slop2palptrsave]    ; EBX = Palette array
+	mov ecx, [slp2asm2step]       ; ECX = Block pixel counter
+
+slp2inner:
+	mov eax, esi                  ; Current U
+	mov edx, edi                  ; Current V
+slopmachushiftb:
+	shr eax, 20                   ; SMC Patched
+slopmachlogyb:
+	shl eax, 8                    ; SMC Patched
+slopmachvshiftb:
+	shr edx, 26                   ; SMC Patched
+	add eax, edx
+slopmachptrb:
+	add eax, 088888888h           ; SMC Patched: Add texture base address
+	movzx eax, byte ptr [eax]     ; Fetch texel
+	mov edx, [ebx]                ; Fetch specific palette pointer for this pixel
+	mov al, byte ptr [edx+eax]    ; Apply lighting/shading
+	mov [ebp], al                 ; Write pixel to screen (center)
+	;mov [ebp+1], al              ; Write 1px right (LQ2X)
+	
+	; Linear stepping within the block (Perspective-correct only at block boundaries)
+	add esi, [slp2tmpdu]
+	add edi, [slp2tmpdv]
+	sub ebx, 4                    ; Next palette in the array
+slopmachpincb:
+	add ebp, 088888888h           ; SMC Patched: Move to next screen pixel
+	dec ecx
+	jnz slp2inner
+
+	; 7. Update loop variables for the next adaptive block
+	mov [slp2psave], ebp
+	mov [slop2palptrsave], ebx
+	mov eax, [slp2asm3next]
+	mov [_asm3], eax              ; Update bz for next block
+	mov eax, [slp2inext]
+	mov [slp2istart], eax         ; Update i_start for next block
+	mov eax, [slp2asm2step]
+	sub [_asm4], eax              ; Subtract processed pixels from cnt
+	jg bigslopeloop16             ; Continue if pixels remain
+
+slp2exit:
+	mov esp, [_espbak]
+	pop ebx                       ; Restore registers
+	pop edi
+	pop esi
+	pop ebp
+	ret
+
+; --- slp2krecip: Reciprocal table lookup with Newton-Raphson ---
+; Optimized for 486SX: BSR + IMUL instead of IDIV
+; Fixed: Sign problem in of val 2.0 and order corrected
+
+slp2krecip:
+	cdq
+	mov     [slp2tmpsign], edx      ; Save the sign of the input
+	test    eax, eax
+	jns     short slp2kr1           ; If non-negative, skip negation
+	neg     eax                     ; Otherwise, negate to make positive
+slp2kr1:
+	cmp     eax, 4095               ; Table covers up to 4095
+	jbe     short slp2krtable       ; If within table bounds, jump to table lookup
+	 ; Newton-Raphson branch
+	push    esi
+	mov     esi, eax                ; esi = original divisor (d)
+	bsr     eax, esi                ; eax = position of the most significant bit
+	mov     ecx, eax
+	sub     ecx, 11                 ; ecx = shift to normalize divisor into 0..4095 range
+	mov     ebx, esi
+	shr     ebx, cl                 ; Normalize divisor for table lookup
+	and     ebx, 0fffh              ; ebx = index
+	mov     eax, dword ptr [_reciptabletextureint + ebx*4] ; eax = y0 (from table)
+	mov     ebx, eax                ; ebx = y0 (preserve for final multiplication)
+	; Newton-Raphson iteration: y1 = y0 * (2.0 - d * y0)
+	; 1. Compute d * y0
+	; Note: d is large, and y0 is in 2.30 fixed-point.
+	; To fit d * y0 in 2.30, denormalize d back.
+	push    ecx
+	imul    esi                     ; edx:eax = d * y0
+	shrd    eax, edx, cl            ; Scale the result to table scale (2.30)
+	; 2. Compute (2.0 - d * y0)
+	neg     eax
+	add     eax, 40000000h          ; Instead of adding 80000000h (which is -2^31 in 2.30)
+	add     eax, 40000000h          ; Add 1.0 twice in 2.30 format
+	; 3. Compute y0 * (2.0 - d * y0)
+	imul    ebx                     ; edx:eax = y0 * (2 - d*y0)
+	shrd    eax, edx, 30            ; Iteration result in 2.30 format
+	; 4. Final scaling
+	pop     ecx                     ; Retrieve bsr-11 shift value
+	shr     eax, cl                 ; Shift result back to 1/x scale
+	pop     esi
+	jmp     short slp2krdone
+slp2krtable:
+	test    eax, eax
+	jz      short slp2krmax         ; If divisor is 0, return max value
+	mov     eax, dword ptr [_reciptabletextureint + eax*4] ; Lookup in table
+	jmp     short slp2krdone
+slp2krmax:
+	mov     eax, 07fffffffh         ; Return max positive value for 1/0
+slp2krdone:
+	xor     eax, [slp2tmpsign]      ; Restore the original sign
+	ret
+
+; === integer slopes drawing - finish ==============================================
+
 
 
 ALIGN 16
@@ -2336,6 +2617,7 @@ loinc4: sub ecx, 88888888h
 
 	pop ebp
 	ret
+
 
 
 PUBLIC mmxoverlay_

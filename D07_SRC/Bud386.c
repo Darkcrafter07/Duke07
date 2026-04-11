@@ -11,7 +11,7 @@
 #include <sys\types.h>
 #include <sys\stat.h>
 #include "build.h"
-#include "pragmas.h"
+#include "prag386.h"
 
 #pragma intrinsic(min);
 #pragma intrinsic(max);

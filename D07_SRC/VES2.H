@@ -2,6 +2,7 @@
 // Ken Silverman's official web site: "http://www.advsys.net/ken"
 // See the included license file "BUILDLIC.TXT" for license info.
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,7 +55,7 @@ typedef struct
 
 long VESABuf_sel = 0, VESABuf_rseg;
 short modelist[256];
-static char *screen = NULL, vesachecked = 0;
+char *screen = NULL, vesachecked = 0; //used to be static
 long xres, yres, bytesperline, frameplace, imageSize, maxpages;
 long buffermode, origbuffermode, linearmode;
 long setactiveentry = 0, setvisualentry = 0, setpaletteentry = 0;

@@ -2,18 +2,18 @@
 // Ken Silverman's official web site: "http://www.advsys.net/ken"
 // See the included license file "BUILDLIC.TXT" for license info.
 
-#define MAXSECTORS 1024
-#define MAXWALLS 8192
-#define MAXSPRITES 4096
+#define MAXSECTORS 2048
+#define MAXWALLS 16384
+#define MAXSPRITES 8192
 
-#define MAXTILES 9216
+#define MAXTILES 18432
 #define MAXSTATUS 1024
 #define MAXPLAYERS 16
 #define MAXXDIM 1600
 #define MAXYDIM 1200
 #define MAXPALOOKUPS 256
-#define MAXPSKYTILES 256
-#define MAXSPRITESONSCREEN 1024
+#define MAXPSKYTILES 8192
+#define MAXSPRITESONSCREEN 4096
 
 #define CLIPMASK0 (((1L)<<16)+1L)
 #define CLIPMASK1 (((256L)<<16)+64L)

@@ -4,7 +4,7 @@
 
 #include <dos.h>
 #include <stdio.h>
-#include "pragmas.h"
+#include "prag386.h"
 
 //   This module keeps track of a standard linear cacheing system.
 //   To use this module, here's all you need to do:
