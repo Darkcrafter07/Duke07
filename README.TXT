@@ -1,3 +1,215 @@
+===========================================================================
+ ---===|DUKE07 SOURCE PORT OF DUKE NUKEM3D ATOMIC BY DARKCRAFTER07|===---
+===========================================================================
+Vogons thread: https://www.vogons.org/viewtopic.php?t=107057
+===========================================================================
+darkcrafter774@gmail.com
+===========================================================================
+
+1. Run Windows 95
+2. Install Watcom 11.0
+3. Run Windows Commander
+4. Navigate to D07_SRC
+5. Delete all *.obj files if found
+6. To build for 386, run file "MakeLQ2.bat"
+7. Don't worry about linking errors
+8. Copy files alq2x.obj, k.obj, eng386.obj, cash386.obj, mm386ti.obj
+   to D07_source
+9. Navigate to D07_source
+10. Copy file "Prag386.h" as "Pragmas.h" (replace)
+11. Run file "MakeLQ2.bat"
+12. Delete all *.obj files in D07_source to build for 486
+*** if you want to disable low detail mode, edit eng386.c as such:
+    set "use_lqmode" variable to 0 and use A.asm (NOT ALQ2X-ALQ3X!!!).
+---------------------------
+13. To build for 486, navigate to D07_SRC again
+14. Delete all *.obj files if found
+15. Run file "Make.bat"
+16. Copy files a.obj, k.obj, engine.obj, cache1d.obj, mmulti.obj
+   to D07_source
+17. Navigate to D07_source again.
+18. Copy file "Prag486.h" as "Pragmas.h" (replace)
+19. Run file "Make.bat"
+20. Run file BG.bat
+21. Copy Duke07.exe and D07LQ2X.exe to the folder where your 
+    legally obtained copy of Duke Nukem 3D Atomic Edition 1.4
+    or 1.5 is placed
+
+You may run it with a /nofpu command to degrade slopes rendering
+quality to run on very old and slow 486 and even 386 without FPUs.
+
+Duke07.exe /nofpu
+
+You can go even further and run it with low-detail mode like it's
+done in Doom, make sure it's EXPERIMENTAL and looks BAD:
+D07LQ2X.exe
+
+D07LQ2X is compiled for 386 including all C and asm refactored
+code, so that should run.
+===========================================================================
+v0.20 features (April 11, 2026):
+- first, initial GitHub upload, forked from "videogamepreservation" archive
+  https://github.com/videogamepreservation/dukenukem3d;
+- more stable and a bit faster integer slopes due to increased reciptables
+  size and newton-raphons krecip iterations instead of idiv to prevent
+  division by zero errors;
+===========================================================================
+v0.19 features (March 17, 2026, 01:30AM):
+- integer slopes optimization via adaptive step size (32px for closeup,
+  16px for medium distances, 8px for distant slopes);
+===========================================================================
+v0.18 features (March 17, 2026, 01:30AM):
+- much better integer slopes for all the versions included;
+===========================================================================
+v0.17 features:
+- "distance-slow" optimization. Turn on by /distslow command-line parameter
+   allows to speed-up rendering on big open areas by rendering distant
+   areas 8 times less often. Causes rendering artifacts since simple
+   "drawalls" modification in engine. Both regular and 386 version are
+   bundled with it.
+===========================================================================
+v0.16 features:
+- further enhancements of low detail mode, especially "drawsprite" function
+  doesn't introduce unwanted bending to the farthest bounds of a sprite,
+  e.g. no more crooked-mirror effect. Depth sorting issues and infinitely
+  tall repeating on sprites are now fixed, thus "trasmach4" pixel
+  duplicating asm function is now on. Transparent wall sprites aren't yet
+  rendered.
+- mact386.bin diagonal mouse movement slowdown fixed. File mact386.lib
+  was patched with "Build Engine Mouse Fix v1.1" exe tool. No more need
+  to patch it when exe's are built because the mact386.lib itself changed.
+  The tool is made by "CTPAX" (fear, RUS.):
+  _CTPAX_@MAIL.RU, ctpax-cheater.losthost.org
+===========================================================================
+v0.15 features:
+- the original game comes with its own y-parallax scrolling defined as
+  "parallaxyscale" in engine.c in "parascan" function and premap.c
+  "setupbackdrop" function. Setting it to 65535 does the trick, thus
+   I set my approach parallax scroll speed to 0 to disable it. So we have
+   nice original smooth parallax effect and height tracking parallax
+   per player. Also, my approach wasn't properly reset per level so that
+   I added "g_skyycuroffs" variable, initialized it to 0 and assigned 
+   all sky cases offsets in premap.c. Each time a level is loaded, the
+   offset resets to those defined in premap.c per "g_skyycuroffs" value.
+- an attempt to implement LQ3X mode was made. It looks even worse and
+  there's no speed gain unlike LQ2X mode, thus not compiled. Set "pxlzefctr"
+  variable to "3" in eng386.c, run "MakeLQ3.bat".
+===========================================================================
+v0.14 features:
+- further enhancements on LQ2X mode, a lot has been done but there's
+  a room for improvements. Now that it works just as fast as ingame low
+  detail mode it looks crisper and much faster when window size is shrunk.
+  Unfortunately, the old default ingame mode is ineffective on little
+  windows size because it always renders a larger 160x100 view and then
+  stretches up or down the rendered view onto 320x200 screen and does
+  double job which makes the game perform slower. 
+- correct "bswap" 386 asm instructions by Tronix, so mirrors are ok
+- the way to fill unprocessed fields in asm has been found and unlike
+  left (-1, -2 etc.) or right (+1, +2 etc.) writes, there's a need to know
+  screen width in pixels. It could be done by loading "_xdim" variable in
+  asm functions but it's out of scope for the moment and "320" constant is
+  hardcoded. Read ALQ2X.ASM for details. Enabling transmach4 pixel doubling
+  logic brings the light on "drawsprite_LQ2X" function issues in eng386.c.
+  There's a need to polish it further.
+- flat vertical sprites with transparency don't render yet.
+===========================================================================
+v0.13 features:
+- an attempt to compile the game entirely for 386 with all code
+  and assembly refactored to do so (mostly bswap instruction replaced and
+  a different compilation path). Also, all occurences of "Nice try" in
+  eng386.c were commented out (disabled).
+- an attempt to implement low detail like it's done in Doom. Duke3D does it
+  by rendering a 160x100 tile and then stretching it up to 320x200 by using
+  the same drawing functions that high detail mode does. It's pretty
+  ineffective. Now we want to do it like in doom, e.g. call to process
+  stuff like walls, floors, ceilings, sprites and sky twice as less but
+  interpolate the unprocessed fields. Only walls and skies are done correct
+  yet (skies use wallscan function to draw).
+- it looks bad yet
+===========================================================================
+v0.12 features:
+- finally an "interpolated" way to do slopes with /nofpu flag.
+  Ken's unfinished "slopevlin2" approach now renamed to #0.
+  "slopevlin" duplicated and now is #2 approach, has its own
+  precision parameters, and most importantly, simulateneous pixel writes
+  to the sides, allowing to "interpolate" only those columns that were
+  requested in grouscan_nonfpu function in engine.c, frame parity removed
+  for a while but the file is still there if you will - engaltgs.c.
+  The a.asm changes:
+
+        ; we now add this thing above
+        mov [ebp-1], al ; Pixel to the left - 1
+        ;the original line below:
+        mov [ebp],   al ; Center Pixel
+        ; we now add this thing beneath
+	mov [ebp+1], al ; Pixel to the right + 1
+        
+        you can iterate more to fill in the gaps
+===========================================================================
+v0.11 features:
+- up to 768000 bytes MIDI playback.
+
+- up to 10 custom 4-tile 256px width panoramic skies (defined
+  in DEFS.CON). Make sure for the names SKYCUSTOM1-SKYCUSTOM10
+  to stay the same. If you use a tile #3840, make sure you have
+  3 more tiles space left in your art file, e.g. #3841,3842,3843
+  must be free to fit remainig 3 parts of your sky.
+===========================================================================
+v0.1 features:
+- y-sky parallax shearing based on player's look up/down and slopes if 
+  mouse aims off. Player's height relative to the world is also tracked.
+  Integer math only version turned on by default as floats are useless but
+  the code without integer optimization is commented and included.
+  Must be done really wrong and is not very smooth.
+
+- /nofpu command line parameter to speed up rendering on really old and
+  slow 486 or even 386 CPUs without FPU. At this moment I couldn't
+  implement anything better than interleaved ticker dependent scanline
+  alternation. In engine.c, basically only grouscan and drawalls functions
+  are modified to handle different rendering paths. I can't modify this
+  thing any further at the moment unfortunately.
+
+- playanm function enhanced and now correctly removes played ANM files 
+  from the RAM (cache) via "suckcache(anim_t_internal);" command. Turns out
+  original Duke didn't do that at all because "free animation" command
+  referenced to the one defined in animlib.c and it was commented out
+  (disabled) for a good reason - it used John Carmack's zone.c hidden
+  in "mact386.lib" memory handler which isn't compatible with Duke3D's
+  cache1d.c system. All sounds are now stopped after animation is played.
+
+- playanm_split function is present in the code, tested but unused. Can be
+  used to split a large ANM file and play in one go, one after another and
+  skipped by pressing Enter, Space or Escape just once. Messes up the
+  palette a little-bit after the first animation was played. Unloads
+  a played ANM file from RAM (cache) before playing another one in the
+  sequence. Useful to play large anm files with as much lower RAM
+  consumption as possible.
+
+- animlib modifications to untie it from "mact386.lib" stuff with the
+  same namespace. "_internal" suffix added to each of the functions.
+
+- correct stop all sounds after a bonus screen ( finish level screen ).
+===========================================================================
+
+
+
+Terry allowed to publish DOS4g binder?
+There must be more than that - Terry
+allowed to publish sources on some
+git project I can't remember but
+they're NOT included here anyway
+
+
+by Darkcrafter07
+darkcrafter774@gmail.com
+
+===========================================================================
+
+
+
+
+
+
 ===================================================================
 Duke Nukem 3D (v1.5 CD Version) Source Code Release - April 1, 2003
 ===================================================================
