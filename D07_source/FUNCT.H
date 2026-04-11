@@ -255,6 +255,8 @@ extern void palto(char r,char g,char b,long e);
 extern void drawoverheadmap(long cposx,long cposy,long czoom,short cang);
 //#line "menues.c" 2685
 extern void playanm(char *fn,char);
+//#line "menues.c" 2800
+extern void playanm_split(char *fn,char);
 //#line "gamedef.c" 122
 extern short getincangle(short a,short na);
 //#line "gamedef.c" 140
@@ -485,6 +487,9 @@ extern void readsavenames(void );
 extern void CONFIG_ReadSetup(void );
 //#line "config.c" 613
 extern void CONFIG_WriteSetup(void );
+
+
+
 //#line "animlib.c" 34
 extern void CheckAnimStarted(char *funcname);
 //#line "animlib.c" 46
@@ -507,6 +512,9 @@ extern int32 ANIM_NumFrames(void );
 extern byte *ANIM_DrawFrame(int32 framenumber);
 //#line "animlib.c" 312
 extern byte *ANIM_GetPalette(void );
+
+
+
 //#line "actors.c" 7
 extern void updateinterpolations(void);
 //#line "actors.c" 15

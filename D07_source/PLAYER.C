@@ -1,6 +1,7 @@
 //-------------------------------------------------------------------------
 /*
 Copyright (C) 1996, 2003 - 3D Realms Entertainment
+Y-Parallax on skies by Darkcrafter07, 2025
 
 This file is part of Duke Nukem 3D version 1.5 - Atomic Edition
 
@@ -30,6 +31,42 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 int32 turnheldtime; //MED
 int32 lastcontroltime; //MED
+
+//These vars are required for sky y-parallax handling
+long g_globalBaseZ = 0;
+short g_baseZInitialized = 0;
+short g_parallaxInitialized = 0;
+char g_ceilingParallaxMarked[MAXSECTORS] = {0};
+char g_floorParallaxMarked[MAXSECTORS] = {0};
+
+extern long g_baseCeilingPan[];
+extern long g_baseFloorPan[];
+extern long g_lastHorizOffset;
+extern long g_lastProcessedTick;
+extern long g_skyPanBaseCeiling;
+extern long g_skyPanBaseFloor;
+extern char g_skyPanInitialized;
+extern char g_readyToPan;
+
+#define REFERENCE_FLOORZ     -148480  // E1L1 floor reference
+#define REFERENCE_CEILINGZ   -247808  // E1L1 ceiling reference
+#define REFERENCE_HEIGHT     (REFERENCE_CEILINGZ - REFERENCE_FLOORZ)  // 99280
+
+// Fixed-point conversion sky y-parallax constants (precomputed for efficiency)
+#define FIXED_0_000014      (15)        // 0.000014 * 2^20 (accuracy to 0.000001)
+#define FIXED_1_01         (33179)      // 1.01 * 2^15 (scaled for 1.01 multiplier)
+#define FIXED_0_692        (45426)      // 0.692 * 2^16
+#define FIXED_2_5          (40960)      // 2.5 * 2^14
+//#define FIXED_0_36         (23592)      // 0.36 * 2^16 // parallax look speed
+//why we even need yparallax speed if the game already comes with one (parallaxyscale)
+#define FIXED_0_36         (0)          // 0 ffs // parallax look speed
+#define FIXED_65536        (65536)      // Fixed-point base
+
+// Height factor constants
+#define FIXED_HEIGHT_FACTOR_NORMAL    FIXED_0_000014
+#define FIXED_HEIGHT_SCALE_NORMAL     FIXED_1_01
+#define FIXED_HEIGHT_FACTOR_640x400   (FIXED_0_000014 * 98 / 100) // 0.000014 * 0.98
+#define FIXED_HEIGHT_SCALE_640x400    (FIXED_1_01 * 1005 / 1000)  // 1.01 * 1.005
 
 void setpal(struct player_struct *p)
 {
@@ -3328,6 +3365,319 @@ void processinput(short snum)
 
         if(p->horiz > 299) p->horiz = 299;
         else if(p->horiz < -99) p->horiz = -99;
+
+
+//============================================================================
+//
+// Sky vertical scrolling according to look up or down input (lookupanddown)
+// and according to slope angle. For all surfaces, be them skies declared in
+// premap.c, names.h, sounddefs.h and regular textures
+// with parallax stat on them (floors and ceilings).
+//
+//============================================================================
+
+// Sky vertical - calculation using integer math, considering 640x400 case
+
+/* WE SHOULD DEFINE THEM AT THE TOP OF PLAYER.C
+// Fixed-point conversion sky y-parallax constants (precomputed for efficiency)
+#define FIXED_0_000014      (15)        // 0.000014 * 2^20 (accuracy to 0.000001)
+#define FIXED_1_01         (33179)      // 1.01 * 2^15 (scaled for 1.01 multiplier)
+#define FIXED_0_692        (45426)      // 0.692 * 2^16
+#define FIXED_2_5          (40960)      // 2.5 * 2^14
+#define FIXED_0_36         (23592)      // 0.36 * 2^16
+#define FIXED_65536        (65536)      // Fixed-point base
+
+// Height factor constants
+#define FIXED_HEIGHT_FACTOR_NORMAL    FIXED_0_000014
+#define FIXED_HEIGHT_SCALE_NORMAL     FIXED_1_01
+#define FIXED_HEIGHT_FACTOR_640x400   (FIXED_0_000014 * 98 / 100) // 0.000014 * 0.98
+#define FIXED_HEIGHT_SCALE_640x400    (FIXED_1_01 * 1005 / 1000)  // 1.01 * 1.005
+WE SHOULD DEFINE THEM AT THE TOP OF PLAYER.C */
+
+{
+    if (snum == screenpeek && totalclock != g_lastProcessedTick)
+    {
+        long os;
+        long totalHoriz;
+        long lookUpDown;
+        long horizOffset;
+        long heightOffset;
+        long heightDifference;
+        long heightAdjust;
+        long tempAdjust;
+        long fixHeightFactor;
+        long fixHeightScale;
+        long fixSensitivity;
+
+        g_lastProcessedTick = totalclock;
+
+        // Get resolution-dependent settings
+        if (xdim == 640 && ydim == 400)
+        {
+            fixHeightFactor = FIXED_HEIGHT_FACTOR_640x400;
+            fixHeightScale = FIXED_HEIGHT_SCALE_640x400;
+            // Aspect correction for 640x400 using integer math
+            fixSensitivity = (FIXED_0_36 * FIXED_65536) / yxaspect;
+        }
+        else
+        {
+            fixHeightFactor = FIXED_HEIGHT_FACTOR_NORMAL;
+            fixHeightScale = FIXED_HEIGHT_SCALE_NORMAL;
+            fixSensitivity = FIXED_0_36;
+        }
+
+        /* Calculate total horizon accounting for slope tilt */
+        totalHoriz = p->horiz + p->horizoff;
+        if (totalHoriz > 299)
+        {
+            totalHoriz = 299;
+        }
+        else if (totalHoriz < -99)
+        {
+            totalHoriz = -99;
+        }
+        
+        lookUpDown = totalHoriz - 100;
+        // Fixed-point sensitivity calculation
+        horizOffset = (lookUpDown * fixSensitivity) >> 16;  // Convert back to integer
+        
+        // Fixed-point height offset calculation
+        heightOffset = ((REFERENCE_FLOORZ - p->posz) * fixHeightFactor) >> 20;
+
+        /* Initialize parallax system once */
+        if (!g_parallaxInitialized) 
+        {
+            for (os = 0; os < numsectors; os++) 
+            {
+                if (sector[os].ceilingstat & 1) 
+                {
+                    g_baseCeilingPan[os] = sector[os].ceilingypanning;
+                }
+                if (sector[os].floorstat & 1)
+                {
+                    g_baseFloorPan[os] = sector[os].floorypanning;
+                }
+            }
+            g_parallaxInitialized = 1;
+        }
+
+        /* Apply to all sectors */
+        for (os = 0; os < numsectors; os++) 
+        {
+            /* Calculate height difference from reference */
+            heightDifference = (sector[os].ceilingz - sector[os].floorz) - REFERENCE_HEIGHT;
+            
+            /* Fixed-point scaling */
+            heightAdjust = ((heightDifference * fixHeightFactor) >> 20) * fixHeightScale;
+            heightAdjust = (heightAdjust >> 15);  // Shift combined scaling back to integer
+            
+            /* Complex adjustment in fixed-point */
+            // tempAdjust = heightAdjust - (heightAdjust * 0.692) + 2.5
+            tempAdjust = heightAdjust - ((heightAdjust * FIXED_0_692) >> 16) + FIXED_2_5;
+            
+            /* Apply to parallax ceilings */
+            if (sector[os].ceilingstat & 1) 
+            {
+                // Convert fixed point to integer
+                sector[os].ceilingypanning = g_baseCeilingPan[os] - horizOffset - heightOffset - (tempAdjust >> 14);
+            }
+            
+            /* Apply to parallax floors */
+            if (sector[os].floorstat & 1) 
+            {
+                // Convert fixed point to integer
+                sector[os].floorypanning = g_baseFloorPan[os] - horizOffset - heightOffset - (tempAdjust >> 14);
+            }
+        }
+    }
+}
+
+//============================================================================
+//
+// Sky vertical - calculation using FPU, considering 640x400 case -DEACTIVATED
+//
+//============================================================================
+
+// Sky vertical - calculation using FPU, considering 640x400 case -DEACTIVATED
+/*
+{
+    if (snum == screenpeek && totalclock != g_lastProcessedTick)
+    {
+        long os;
+        long totalHoriz;
+        long lookUpDown;
+        long horizOffset;
+        long heightOffset;
+        long heightDifference;
+        long heightAdjust;
+        float parallaxSensitivity;
+        float heightFactor;
+        float heightScale;
+        float aspectCorrection; // Only used for 640x400
+        float tempAdjust;        // Temporary for complex calculation
+
+        g_lastProcessedTick = totalclock;
+
+        // START: Resolution-specific parameters
+        if ((xdim == 640) && (ydim == 400))
+        {
+            aspectCorrection = 65536.0f / (float)yxaspect;
+            parallaxSensitivity = 0.36f * aspectCorrection;
+            heightFactor = 0.000014f * 0.98f;
+            heightScale = 1.01f * 1.005f;
+        }
+        else
+        {
+            parallaxSensitivity = 0.36f;
+            heightFactor = 0.000014f;
+            heightScale = 1.01f;
+        }
+        // END: Resolution-specific parameters
+
+        // Calculate total horizon accounting for slope tilt
+        totalHoriz = p->horiz + p->horizoff;
+        if (totalHoriz > 299) 
+        {
+            totalHoriz = 299;
+        }
+        else if (totalHoriz < -99) 
+        {
+            totalHoriz = -99;
+        }
+        
+        lookUpDown = totalHoriz - 100;
+        horizOffset = (long)(lookUpDown * parallaxSensitivity);
+        heightOffset = (long)((REFERENCE_FLOORZ - p->posz) * heightFactor);
+
+        // Initialize parallax system once
+        if (!g_parallaxInitialized) 
+        {
+            for (os = 0; os < numsectors; os++) 
+            {
+                if (sector[os].ceilingstat & 1) 
+                {
+                    g_baseCeilingPan[os] = sector[os].ceilingypanning;
+                }
+                if (sector[os].floorstat & 1)
+                {
+                    g_baseFloorPan[os] = sector[os].floorypanning;
+                }
+            }
+            g_parallaxInitialized = 1;
+        }
+
+        // Apply to all sectors
+        for (os = 0; os < numsectors; os++) 
+        {
+            heightDifference = (sector[os].ceilingz - sector[os].floorz) - REFERENCE_HEIGHT;
+            heightAdjust = (long)(heightDifference * heightFactor * heightScale);
+            
+            // Complex adjustment in single-line calculations (CEILING)
+            if (sector[os].ceilingstat & 1) 
+            {
+                tempAdjust = heightAdjust - (heightAdjust * 0.692f) + 2.5f;
+                sector[os].ceilingypanning = g_baseCeilingPan[os] - horizOffset - heightOffset - (long)tempAdjust;
+            }
+            
+            // Complex adjustment in single-line calculations (FLOOR)
+            if (sector[os].floorstat & 1) 
+            {
+                tempAdjust = heightAdjust - (heightAdjust * 0.692f) + 2.5f;
+                sector[os].floorypanning = g_baseFloorPan[os] - horizOffset - heightOffset - (long)tempAdjust;
+            }
+        }
+    }
+}
+*/
+// Sky vertical - calculation using FPU, considering 640x400 case -DEACTIVATED
+
+//============================================================================
+//
+// Sky vertical - old function without 640x400 treatment - DEACTIVATED
+//
+//============================================================================
+
+// Sky vertical - old function without 640x400 treatment - DEACTIVATED
+/*
+{
+    if (snum == screenpeek && totalclock != g_lastProcessedTick)
+    {
+        long os;
+        long totalHoriz;
+        long lookUpDown;
+        long horizOffset;
+        long heightOffset;
+        long heightDifference;
+        long heightAdjust;
+        
+        //Parallax speed for absolute player height tracking
+        const float heightFactor = 0.000014f;
+        
+        g_lastProcessedTick = totalclock;
+
+        // Calculate total horizon accounting for slope tilt
+        totalHoriz = p->horiz + p->horizoff;
+        if (totalHoriz > 299) totalHoriz = 299;
+        else if (totalHoriz < -99) totalHoriz = -99;
+        
+        lookUpDown = totalHoriz - 100;
+        // Lookout parallax speed
+        horizOffset = lookUpDown * 0.36;
+        
+        // Height offset based on reference and player position
+        heightOffset = (long)((REFERENCE_FLOORZ - p->posz) * heightFactor);
+
+        // Initialize parallax system once
+        if (!g_parallaxInitialized) 
+        {
+            for (os = 0; os < numsectors; os++) 
+            {
+                if (sector[os].ceilingstat & 1) 
+                {
+                    g_baseCeilingPan[os] = sector[os].ceilingypanning;
+                }
+                
+                if (sector[os].floorstat & 1)
+                {
+                    g_baseFloorPan[os] = sector[os].floorypanning;
+                }
+            }
+            g_parallaxInitialized = 1;
+        }
+
+        // Apply to all sectors
+        for (os = 0; os < numsectors; os++) 
+        {
+            // Calculate height difference from reference
+            heightDifference = (sector[os].ceilingz - sector[os].floorz) - REFERENCE_HEIGHT;
+            
+            // Scale to panning units - this shouldn't be 1.0 otherwise it's gonna crash
+            heightAdjust = (long)(heightDifference * heightFactor * 1.01f);
+            
+            // Apply to parallax ceilings
+            if (sector[os].ceilingstat & 1) 
+            {
+                sector[os].ceilingypanning = g_baseCeilingPan[os]  - horizOffset - heightOffset - ( heightAdjust - (heightAdjust * 0.692) ) + 2.5;
+            }
+            
+            // Apply to parallax floors
+            if (sector[os].floorstat & 1) 
+            {
+                sector[os].floorypanning = g_baseFloorPan[os] - horizOffset - heightOffset - ( heightAdjust - (heightAdjust * 0.692) ) + 2.5;
+            }
+        }
+    }
+}
+*/
+// Sky vertical - old function without 640x400 treatment - DEACTIVATED
+
+//============================================================================
+//
+// Sky vertical function - END
+//
+//============================================================================
+
+
 
     //Shooting code/changes
 

@@ -1,15 +1,17 @@
 #This make file is used with Watcom C/C++ 32 Compiler v11.0c
-#debug = /d3 /w1
+#debug = /d2 /w1
 #all = debug all
-prod = /4r /s /otexan
 
-Duke3d.exe : game.obj actors.obj gamedef.obj global.obj menues.obj player.obj &
-			premap.obj sector.obj sounds.obj rts.obj cache1d.obj engine.obj &
-			a.obj mmulti.obj config.obj animlib.obj
-		wlink $(all) @makefile.lnk
+prod = /3r /s /otexan #since we're doing LQ mode, let's also do it with 3r for 386
+target = 386pc
+
+D3DLQ3.exe : game.obj actors.obj gamedef.obj global.obj menues.obj player.obj &
+			premap.obj sector.obj sounds.obj rts.obj cash386.obj eng386.obj &
+			alq3x.obj mm386ti.obj config.obj animlib.obj
+		wlink $(all) @makelq3.lnk
 
 compileoptions = $(prod) $(debug) -imact
-globaldependencies = makefile. Duke3d.h global.c
+globaldependencies = makefile. duke3d.h global.c
 
 game.obj : game.c $(globaldependencies)
 	wcc386 game $(compileoptions)

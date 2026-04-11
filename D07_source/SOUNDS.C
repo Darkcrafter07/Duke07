@@ -269,7 +269,10 @@ void playmusic(char *fn)
     if(fp == -1) return;
 
     l = kfilelength( fp );
-    if(l >= 72000)
+    // Remember MusicPtr[768000] ?
+    // here's more you need to tune
+    // Darkcrafter07
+    if(l >= 768000)
     {
         kclose(fp);
         return;

@@ -1,0 +1,8 @@
+system dos4g
+option map
+option stack=90k
+option u
+name D3DLQ2
+file game,actors,gamedef,global,menues,player,premap,sector,sounds,rts,config
+file eng386,cash386,mm386ti,alq2x,animlib
+library audio_wf.lib,mact\mact386.lib,butwcd4.lib

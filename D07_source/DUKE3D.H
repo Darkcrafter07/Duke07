@@ -1,6 +1,7 @@
 //-------------------------------------------------------------------------
 /*
 Copyright (C) 1996, 2003 - 3D Realms Entertainment
+Y-Parallax on skies by Darkcrafter07, 2025
 
 This file is part of Duke Nukem 3D version 1.5 - Atomic Edition
 
@@ -274,7 +275,7 @@ extern short numanimwalls,probey,lastprobey;
 
 extern char *mymembuf;
 extern char typebuflen,typebuf[41];
-extern char MusicPtr[72000];
+extern char MusicPtr[768000];
 extern long msx[2048],msy[2048];
 extern short cyclers[MAXCYCLERS][6],numcyclers;
 extern char myname[32];
@@ -332,6 +333,15 @@ typedef struct player_struct
     long player_par,visibility;
     long bobcounter,weapon_sway;
     long pals_time,randomflamex,crack_time;
+
+    long lookUpDown;            // Store the raw vertical look-up/down input
+    long baseCeilingYPanning;   // Original ceilingypanning for this player
+    long panningOffset;         // Current panning offset for this player
+    long skyPanBase;            // Base panning value for sky sectors
+    long lastHoriz;             // To store relative panning value
+    long skyPanBaseCeiling;   // For single sector sky panning
+    long skyPanBaseFloor;      // For single sector sky panning
+    char skyPanInitialized;     // Flag to track initialization
 
     int32 aim_mode;
 
@@ -464,8 +474,6 @@ extern void TestCallBack(unsigned long);
 extern long frameplace, chainplace, chainnumpages;
 extern volatile long checksume;
 
-#include "funct.h"
-
 extern char screencapt;
 extern short soundps[NUM_SOUNDS],soundpe[NUM_SOUNDS],soundvo[NUM_SOUNDS];
 extern char soundpr[NUM_SOUNDS],soundm[NUM_SOUNDS];
@@ -543,4 +551,3 @@ extern long cloudtotalclock,totalmemory;
 extern long stereomode, stereowidth, stereopixelwidth;
 
 extern long myaimmode, myaimstat, omyaimstat;
-

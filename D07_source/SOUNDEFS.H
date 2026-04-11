@@ -620,6 +620,18 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define BORNTOBEWILDSCREEN 3370
 #define BLIMP 3400
 #define FEM9 3450
+
+#define SKYCUSTOM1 3840
+#define SKYCUSTOM2 3844
+#define SKYCUSTOM3 3848
+#define SKYCUSTOM4 3852
+#define SKYCUSTOM5 3856
+#define SKYCUSTOM6 3860
+#define SKYCUSTOM7 3864
+#define SKYCUSTOM8 3868
+#define SKYCUSTOM9 3872
+#define SKYCUSTOM10 3876
+
 #define FOOTPRINT 3701
 #define POOP 4094
 #define FRAMEEFFECT1 4095
@@ -1228,4 +1240,9 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define BIGBANG                        393
 #define SMACKIT                        394
 #define BELLSND                        395
+
+#define LOGO1                          411
+#define LOGO2                          412
+#define LOGO3                          413
+#define LOGO4                          414
 // MAXIMUM NUMBER OF SOUNDS: 450 ( 0-449 )

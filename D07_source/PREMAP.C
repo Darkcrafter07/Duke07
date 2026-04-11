@@ -26,9 +26,18 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 #include "duke3d.h"
 
+long g_baseCeilingPan[MAXSECTORS] = {0};
+long g_baseFloorPan[MAXSECTORS] = {0};
+long g_lastHorizOffset = 0;
+long g_lastProcessedTick = -1;
+long g_skyPanBaseCeiling = 0;
+long g_skyPanBaseFloor = 0;
+char g_skyPanInitialized = 0;
+char g_readyToPan = 0;
+long g_skyycuroffs = 0;
+
 extern char everyothertime;
 short which_palookup = 9;
-
 
 tloadtile(short tilenume)
 {
@@ -412,6 +421,34 @@ void resetplayerstats(short snum)
 
     p = &ps[snum];
 
+
+
+
+    // =============================================
+    // DIRECT PARALLAX STATE RESET (NEW LEVEL)
+    // =============================================
+    if (snum >= 0 && snum <= 7)
+    {
+        // Reset base arrays completely
+        for (i = 0; i < MAXSECTORS; i++) 
+        {
+            g_baseCeilingPan[i] = g_skyycuroffs;
+            g_baseFloorPan[i] = g_skyycuroffs;
+        }
+        
+        // Reset horizon tracking variables
+        g_lastHorizOffset = 0;
+        g_lastProcessedTick = -1;
+        
+        // Reset panning offsets and state flags
+        g_readyToPan = 0;
+        g_skyPanBaseCeiling = 0;
+        g_skyPanBaseFloor = 0;
+        g_skyPanInitialized = 0;
+    }
+    // =============================================
+
+
     ud.show_help        = 0;
     ud.showallmap       = 0;
     p->dead_flag        = 0;
@@ -591,7 +628,13 @@ void resetprestat(short snum,char g)
     numanimwalls            = 0;
     numcyclers              = 0;
     animatecnt              = 0;
+
+    //parallaxtypes:
+    //0 - flat xscroll, 1 - doomish stretch,
+    //2 - cylinder scroll, 3 - doomish stretch (wider, new).
     parallaxtype            = 0;
+
+
     randomseed              = 17L;
     ud.pause_on             = 0;
     ud.camerasprite         =-1;
@@ -626,28 +669,115 @@ void setupbackdrop(short sky)
     for(i=0;i<MAXPSKYTILES;i++) pskyoff[i]=0;
 
     if(parallaxyscale != 65536L)
-        parallaxyscale = 32768;
+        parallaxyscale = 65536; //32768 is default original value of parascan
+                                //parallax y-scroll speed but it's not enough
+
+    pskybits=3; // Default value for pskybits
 
     switch(sky)
     {
         case CLOUDYOCEAN:
-            parallaxyscale = 65536L;
+            parallaxyscale = 65536;
             break;
         case MOONSKY1 :
+            parallaxyscale = 65536;
             pskyoff[6]=1; pskyoff[1]=2; pskyoff[4]=2; pskyoff[2]=3;
             break;
         case BIGORBIT1: // orbit
+            parallaxyscale = 65536;
             pskyoff[5]=1; pskyoff[6]=2; pskyoff[7]=3; pskyoff[2]=4;
             break;
         case LA:
-            parallaxyscale = 16384+1024;
+            parallaxyscale = 65536;
             pskyoff[0]=1; pskyoff[1]=2; pskyoff[2]=1; pskyoff[3]=3;
             pskyoff[4]=4; pskyoff[5]=0; pskyoff[6]=2; pskyoff[7]=3;
             break;
+	case SKYCUSTOM1: // (tiles 3840-3843)
+            parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3840 (base + 0)
+	    pskyoff[1] = 1; // Tile 3841
+	    pskyoff[2] = 2; // Tile 3842
+	    pskyoff[3] = 3; // Tile 3843
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM2: // (tiles 3844-3847)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3844 (base + 0)
+	    pskyoff[1] = 1; // Tile 3845
+	    pskyoff[2] = 2; // Tile 3846
+	    pskyoff[3] = 3; // Tile 3847
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM3: // (tiles 3848-3851)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3848 (base + 0)
+	    pskyoff[1] = 1; // Tile 3849
+	    pskyoff[2] = 2; // Tile 3850
+	    pskyoff[3] = 3; // Tile 3851
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM4: // (tiles 3852-3855)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3852 (base + 0)
+	    pskyoff[1] = 1; // Tile 3853
+	    pskyoff[2] = 2; // Tile 3854
+	    pskyoff[3] = 3; // Tile 3855
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM5: // (tiles 3856-3859)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3856 (base + 0)
+	    pskyoff[1] = 1; // Tile 3857
+	    pskyoff[2] = 2; // Tile 3858
+	    pskyoff[3] = 3; // Tile 3859
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM6: // (tiles 3860-3863)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3860 (base + 0)
+	    pskyoff[1] = 1; // Tile 3861
+	    pskyoff[2] = 2; // Tile 3862
+	    pskyoff[3] = 3; // Tile 3863
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM7: // (tiles 3864-3867)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3864 (base + 0)
+	    pskyoff[1] = 1; // Tile 3865
+	    pskyoff[2] = 2; // Tile 3866
+	    pskyoff[3] = 3; // Tile 3867
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM8: // (tiles 3868-3871)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3868 (base + 0)
+	    pskyoff[1] = 1; // Tile 3869
+	    pskyoff[2] = 2; // Tile 3870
+	    pskyoff[3] = 3; // Tile 3871
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM9: // (tiles 3872-3875)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3872 (base + 0)
+	    pskyoff[1] = 1; // Tile 3873
+	    pskyoff[2] = 2; // Tile 3874
+	    pskyoff[3] = 3; // Tile 3875
+	    pskybits = 2; // Override the default value
+	    break;
+	case SKYCUSTOM10: // (tiles 3876-3879)
+	    parallaxyscale = 65536;
+	    pskyoff[0] = 0; // Tile 3876 (base + 0)
+	    pskyoff[1] = 1; // Tile 3877
+	    pskyoff[2] = 2; // Tile 3878
+	    pskyoff[3] = 3; // Tile 3879
+	    pskybits = 2; // Override the default value
+	    break;
    }
 
-   pskybits=3;
+//pskybits defines the width stretching factor for the sky tiles
+//values higher shrink them
 }
+
 
 void prelevel(char g)
 {
@@ -655,51 +785,168 @@ void prelevel(char g)
     short lotags[65];
 
 
-    clearbufbyte(show2dsector,sizeof(show2dsector),0L);
-    clearbufbyte(show2dwall,sizeof(show2dwall),0L);
-    clearbufbyte(show2dsprite,sizeof(show2dsprite),0L);
+    clearbufbyte(show2dsector, sizeof(show2dsector), 0L);
+    clearbufbyte(show2dwall, sizeof(show2dwall), 0L);
+    clearbufbyte(show2dsprite, sizeof(show2dsprite), 0L);
 
-    resetprestat(0,g);
+    resetprestat(0, g);
     numclouds = 0;
 
-    for(i=0;i<numsectors;i++)
+    for (i = 0; i < numsectors; i++)
     {
         sector[i].extra = 256;
 
-        switch(sector[i].lotag)
+        switch (sector[i].lotag)
         {
             case 20:
             case 22:
-                if( sector[i].floorz > sector[i].ceilingz)
+                if (sector[i].floorz > sector[i].ceilingz)
                     sector[i].lotag |= 32768;
                 continue;
         }
 
-        if(sector[i].ceilingstat&1)
+        if (sector[i].ceilingstat & 1)
         {
-            if(waloff[sector[i].ceilingpicnum] == 0)
+            // Load original LA sky (tile #89) and its 4 additional tiles (89-93)
+            if (sector[i].ceilingpicnum == LA)
             {
-                if(sector[i].ceilingpicnum == LA)
-                    for(j=0;j<5;j++)
-                        if(waloff[sector[i].ceilingpicnum+j] == 0)
-                            tloadtile(sector[i].ceilingpicnum+j);
+                for (j = 0; j < 5; j++) // Original LA uses 5 tiles (0-4)
+                    if (waloff[sector[i].ceilingpicnum + j] == 0)
+                        tloadtile(sector[i].ceilingpicnum + j);
             }
+
             setupbackdrop(sector[i].ceilingpicnum);
 
-            if(sector[i].ceilingpicnum == CLOUDYSKIES && numclouds < 127)
+
+
+            // Adjust vertical panning for CLOUDYOCEAN
+            if (sector[i].ceilingpicnum == CLOUDYOCEAN)
+            {
+		g_skyycuroffs = 0; // may be negative
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for MOONSKY1
+            if (sector[i].ceilingpicnum == MOONSKY1)
+            {
+		g_skyycuroffs = 0; // may be negative
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for BIGORBIT1
+            if (sector[i].ceilingpicnum == BIGORBIT1)
+            {
+		g_skyycuroffs = 0; // may be negative
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for LA
+            if (sector[i].ceilingpicnum == LA)
+            {
+		g_skyycuroffs = 0; // may be negative
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM1
+            if (sector[i].ceilingpicnum == SKYCUSTOM1)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM2
+            if (sector[i].ceilingpicnum == SKYCUSTOM2)
+            {
+		g_skyycuroffs = -4;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM3
+            if (sector[i].ceilingpicnum == SKYCUSTOM3)
+            {
+		g_skyycuroffs = -16;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM4
+            if (sector[i].ceilingpicnum == SKYCUSTOM4)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM5
+            if (sector[i].ceilingpicnum == SKYCUSTOM5)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM6
+            if (sector[i].ceilingpicnum == SKYCUSTOM6)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM7
+            if (sector[i].ceilingpicnum == SKYCUSTOM7)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM8
+            if (sector[i].ceilingpicnum == SKYCUSTOM8)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM9
+            if (sector[i].ceilingpicnum == SKYCUSTOM9)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+            // Adjust vertical panning for SKYCUSTOM10
+            if (sector[i].ceilingpicnum == SKYCUSTOM10)
+            {
+		g_skyycuroffs = -20;
+		sector[i].ceilingypanning += g_skyycuroffs;
+		sector[i].floorypanning += g_skyycuroffs;
+            }
+
+
+
+            if (sector[i].ceilingpicnum == CLOUDYSKIES && numclouds < 127)
                 clouds[numclouds++] = i;
 
-            if(ps[0].one_parallax_sectnum == -1)
+            if (ps[0].one_parallax_sectnum == -1)
                 ps[0].one_parallax_sectnum = i;
         }
 
-        if(sector[i].lotag == 32767) //Found a secret room
+        if (sector[i].lotag == 32767) // Found a secret room
         {
             ps[0].max_secret_rooms++;
             continue;
         }
 
-        if(sector[i].lotag == -1)
+        if (sector[i].lotag == -1)
         {
             ps[0].exitx = wall[sector[i].wallptr].x;
             ps[0].exity = wall[sector[i].wallptr].y;
@@ -708,16 +955,16 @@ void prelevel(char g)
     }
 
     i = headspritestat[0];
-    while(i >= 0)
+    while (i >= 0)
     {
         nexti = nextspritestat[i];
 
-        if(sprite[i].lotag == -1 && (sprite[i].cstat&16) )
+        if (sprite[i].lotag == -1 && (sprite[i].cstat & 16))
         {
             ps[0].exitx = SX;
             ps[0].exity = SY;
         }
-        else switch(PN)
+        else switch (PN)
         {
             case GPSPEED:
                 sector[SECT].extra = SLT;
@@ -955,6 +1202,10 @@ void prelevel(char g)
         }
     }
 
+
+
+
+
     //Invalidate textures in sector behind mirror
     for(i=0;i<mirrorcnt;i++)
     {
@@ -967,6 +1218,7 @@ void prelevel(char g)
         }
     }
 }
+
 
 
 void newgame(char vn,char ln,char sk)

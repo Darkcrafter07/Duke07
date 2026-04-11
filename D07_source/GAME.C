@@ -16,7 +16,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
+along with this program; if not, write to the Free Softw4:53 20.06.2025are
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 Original Source: 1996 - Todd Replogle
@@ -37,6 +37,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "sounds.h"
 #include "config.h"
 #include "sndcards.h"
+#include "animlib.h"
 
 #include "duke3d.h"
 
@@ -2972,7 +2973,6 @@ void displayrooms(short snum,long smoothratio)
     }
     else p->visibility = ud.const_visibility;
 }
-
 
 
 
@@ -6570,6 +6570,9 @@ void nonsharedkeys(void)
 
 
 
+char dist_slow = 0;
+char use_fpu = 1; // Use FPU to draw stuff like slopes by default
+
 void comlinehelp(char **argv)
 {
     printf("Command line help.  %s [/flags...]\n",argv[0]);
@@ -6579,11 +6582,13 @@ void comlinehelp(char **argv)
     puts(" /s#           Skill (1-4)");
     puts(" /r            Record demo");
     puts(" /dFILE        Start to play demo FILE");
+    puts(" /distslow     Draw far-scene less often to speed-up");
     puts(" /m            No monsters");
     puts(" /ns           No sound");
     puts(" /nm           No music");
+    puts(" /nofpu        Don't use FPU path to draw stuff like slopes");
     puts(" /t#           Respawn, 1 = Monsters, 2 = Items, 3 = Inventory, x = All");
-    puts(" /c#           MP mode, 1 = DukeMatch(spawn), 2 = Coop, 3 = Dukematch(no spawn)");
+    puts(" /c#           MP mode, 1 = dukeMatch(spawn), 2 = Coop, 3 = dukematch(no spawn)");
     puts(" /q#           Fake multiplayer (2-8 players)");
     puts(" /a            Use player AI (fake multiplayer only)");
     puts(" /i#           Network mode (1/0) (multiplayer only) (default == 1)");
@@ -6595,7 +6600,7 @@ void comlinehelp(char **argv)
     puts(" /z            Skip memory check");
     puts(" -map FILE     Use a map FILE");
     puts(" -name NAME    Foward NAME");
-  printf(" -net          Net mode game");
+    printf(" -net          Net mode game");
 }
 
 void checkcommandline(int argc,char **argv)
@@ -6641,6 +6646,14 @@ void checkcommandline(int argc,char **argv)
                 c++;
                 switch(*c)
                 {
+                    case 'n':
+                        if (strcmp(c, "nofpu") == 0)
+                        {
+                            use_fpu = 0;
+                            puts("Non-FPU INTEGER mode is ON.");
+                            puts("Drawing slopes using integer math.");
+                            break;
+                        }
                     default:
   //                      printf("Unknown command line parameter '%s'\n",argv[i]);
                     case '?':
@@ -6684,7 +6697,6 @@ void checkcommandline(int argc,char **argv)
                         ud.playerai = 1;
                         puts("Other player AI.");
                         break;
-                    case 'n':
                     case 'N':
                         c++;
                         if(*c == 's' || *c == 'S')
@@ -6720,13 +6732,13 @@ void checkcommandline(int argc,char **argv)
                         switch(ud.m_coop)
                         {
                             case 0:
-                                puts("Dukematch (spawn).");
+                                puts("dukematch (spawn).");
                                 break;
                             case 1:
                                 puts("Cooperative play.");
                                 break;
                             case 2:
-                                puts("Dukematch (no spawn).");
+                                puts("dukematch (no spawn).");
                                 break;
                         }
 
@@ -6794,12 +6806,31 @@ void checkcommandline(int argc,char **argv)
                         break;
                     case 'd':
                     case 'D':
+                        // Check for the special 'distslow' command first.
+                        // strcmp(c+1, "istslow") compares the string pointed to by 'c+1'
+                        // (which is everything after 'd' or 'D') with "istslow".
+                        // The 'c++' below advances the pointer to achieve this.
                         c++;
+                        if (strcmp(c, "istslow") == 0)
+                        {
+                            dist_slow = 1;
+                            puts("Drawing distant areas less often to speed-up.");
+                            break; // Exit the case after handling distslow.
+                        }
+
+                        // If it's not "distslow", it must be a demo filename.
+                        // Restore the pointer to its original position before the 'c++'
+                        // to correctly parse the filename that starts with 'd' or 'D'.
+                        c--; // Undo the 'c++' as the demo logic expects the 'd' to be there.
+
+                        // The rest is the original, unmodified demo loading code.
+                        c++; // Now advance the pointer past 'd' to the filename.
                         if( strchr(c,'.') == 0)
                             strcat(c,".dmo");
                         printf("Play demo %s.\n",c);
                         strcpy(firstdemofile,c);
                         break;
+
                     case 'l':
                     case 'L':
                         ud.warp_on = 1;
@@ -6810,15 +6841,15 @@ void checkcommandline(int argc,char **argv)
                     case 'J':
 #ifdef VOLUMEALL
     #ifdef AUSTRALIA
-        printf("Duke Nukem 3D (AUSSIE FULL VERSION) v%s\n",VERSION);
+        printf("duke Nukem 3D (AUSSIE FULL VERSION) v%s\n",VERSION);
     #else
-        printf("Duke Nukem 3D (FULL VERSION) v%s\n",VERSION);
+        printf("duke Nukem 3D (FULL VERSION) v%s\n",VERSION);
     #endif
 #else
     #ifdef AUSTRALIA
-        printf("Duke Nukem 3D (AUSSIE SHAREWARE) v%s\n",VERSION);
+        printf("duke Nukem 3D (AUSSIE SHAREWARE) v%s\n",VERSION);
     #else
-        printf("Duke Nukem 3D (SHAREWARE) v%s\n",VERSION);
+        printf("duke Nukem 3D (SHAREWARE) v%s\n",VERSION);
     #endif
 #endif
 
@@ -6897,6 +6928,7 @@ void checkcommandline(int argc,char **argv)
 
 
 
+
 void printstr(short x, short y, char string[81], char attribute)
 {
         char character;
@@ -6956,6 +6988,7 @@ void Logo(void)
 
     clearview(0L);
     nextpage();
+    suckcache(anim); // Clean up animation cache
 #endif
 
     PlayMusic(&env_music_fn[0][0]);
@@ -7058,6 +7091,225 @@ void Logo(void)
     clearview(0L);
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+//=======================================================
+//
+// LOGO animation playback split (to save on RAM) - START
+//
+//=======================================================
+
+void Logo_split(void)
+{
+    short i,j,soundanm;
+
+    soundanm = 0;
+
+    ready2send = 0;
+
+    KB_FlushKeyboardQueue();
+
+    setview(0,0,xdim-1,ydim-1);
+    clearview(0L);
+    palto(0,0,0,0);
+
+    flushperms();
+    nextpage();
+
+    MUSIC_StopSong();
+
+#ifdef VOLUMEALL
+
+    if(!KB_KeyWaiting() && nomorelogohack == 0)
+    {
+        getpackets();
+        //We split logo animation into 4, 4mb chunks anm files
+        //because 3DRealms animlib and playanm implementations
+        //need to load the entire 12mb anm file into RAM which
+        //is an unaffordable luxury on 8mb RAM machines causing
+        //the game to exit with an error: "BUFFER TOO BIG TO FIT IN CACHE".
+        //I tried for 2 months to create a streamable implementation
+        //but didn't succeed. Take a look at anim2pcx sources and
+        //"play.exe" utility which plays the same 12mb file on a machine
+        //with 386sx, 2mb like it's nothing. The original 3D realms didn't
+        //even free animations from RAM afer they were played because using
+        //3rd party's mact386.lib's zone (iD Software's Doom zone memory thing)
+        //is not compatible with Duke3D's cache1d.c. Using "suckcahe" like
+        //it's done now works - done that both in game.c after each animation
+        //played and in menues.c "playanm" functions. Mact386.lib's animlib
+        //functions removed from it so they don't conflict with Duke's animlib
+        //21-24 - are animation and sound IDs
+        //can be found in "playanm_split" function in menues.c
+        
+        
+        playanm_split("logo1.anm",21);
+        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
+        {
+             goto END_SEQUENCE;
+        }
+
+        playanm_split("logo2.anm",22);
+        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
+        {
+             goto END_SEQUENCE;
+        }
+
+        playanm_split("logo3.anm",23);
+        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
+        {
+             goto END_SEQUENCE;
+        }
+
+        playanm_split("logo4.anm",24);
+        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
+        {
+             goto END_SEQUENCE;
+        }
+        
+        
+        KB_FlushKeyboardQueue();
+    }
+
+END_SEQUENCE:
+    //yeah get rid of animation in the ram after the playback
+    //cause it gets you less probability to encounter an error
+    suckcache(anim); // Clean up animation cache
+    clearview(0L);
+    palto(0,0,0,63);
+    nextpage();
+
+    //After skipping animation, flush keys and show other parts
+    KB_FlushKeyboardQueue(); // Stop holding the key pressed (unpress)
+
+#endif
+
+
+
+    PlayMusic(&env_music_fn[0][0]);
+    for(i=0;i<64;i+=7) palto(0,0,0,i);
+    ps[myconnectindex].palette = drealms;
+    palto(0,0,0,63);
+    rotatesprite(0,0,65536L,0,DREALMS,0,0,2+8+16+64, 0,0,xdim-1,ydim-1);
+    nextpage(); for(i=63;i>0;i-=7) palto(0,0,0,i);
+    totalclock = 0;
+    while( totalclock < (120*7) && !KB_KeyWaiting() )
+        getpackets();
+
+    for(i=0;i<64;i+=7) palto(0,0,0,i);
+    clearview(0L);
+    nextpage();
+
+    ps[myconnectindex].palette = titlepal;
+    flushperms();
+    rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
+    KB_FlushKeyboardQueue();
+    nextpage();
+    for(i=63;i>0;i-=7) palto(0,0,0,i);
+    totalclock = 0;
+
+    while(totalclock < (860+120) && !KB_KeyWaiting())
+    {
+        rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
+
+        if( totalclock > 120 && totalclock < (120+60) )
+        {
+            if(soundanm == 0)
+            {
+                soundanm = 1;
+                sound(PIPEBOMB_EXPLODE);
+            }
+            rotatesprite(160<<16,104<<16,(totalclock-120)<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
+        }
+        else if( totalclock >= (120+60) )
+            rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
+
+        if( totalclock > 220 && totalclock < (220+30) )
+        {
+            if( soundanm == 1)
+            {
+                soundanm = 2;
+                sound(PIPEBOMB_EXPLODE);
+            }
+
+            rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
+            rotatesprite(160<<16,(129)<<16,(totalclock - 220 )<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
+        }
+        else if( totalclock >= (220+30) )
+            rotatesprite(160<<16,(129)<<16,30<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
+
+        if( totalclock >= 280 && totalclock < 395 )
+        {
+            rotatesprite(160<<16,(151)<<16,(410-totalclock)<<12,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
+            if(soundanm == 2)
+            {
+                soundanm = 3;
+                sound(FLY_BY);
+            }
+        }
+        else if( totalclock >= 395 )
+        {
+            if(soundanm == 3)
+            {
+                soundanm = 4;
+                sound(PIPEBOMB_EXPLODE);
+            }
+            rotatesprite(160<<16,(151)<<16,30<<11,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
+        }
+
+        getpackets();
+        nextpage();
+    }
+
+    if(ud.multimode > 1)
+    {
+        rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
+
+        rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
+        rotatesprite(160<<16,(129)<<16,30<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
+        rotatesprite(160<<16,(151)<<16,30<<11,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
+
+        gametext(160,190,"WAITING FOR PLAYERS",14,2);
+        nextpage();
+    }
+
+    waitforeverybody();
+
+    flushperms();
+    clearview(0L);
+    nextpage();
+
+    ps[myconnectindex].palette = palette;
+    sound(NITEVISION_ONOFF);
+
+    palto(0,0,0,0);
+    clearview(0L);
+}
+
+//=======================================================
+//
+// LOGO animation playback split (to save on RAM) - end
+//
+//=======================================================
+
+
+
+
+
+
+
+
+
 void loadtmb(void)
 {
     char tmb[8000];
@@ -7102,6 +7354,9 @@ static char sixteen[] = "16 Possible Dukes";
 ===================
 */
 
+
+
+
 void compilecons(void)
 {
    mymembuf = (char *)&hittype[0];
@@ -7130,6 +7385,10 @@ void Startup(void)
 
    CONFIG_GetSetupFilename();
    CONFIG_ReadSetup();
+
+   //disabled as it's better to use
+   //a command line parameter "/nofpu"
+   //detectfpu();
 
 #ifdef AUSTRALIA
   ud.lockout = 1;
@@ -8792,6 +9051,7 @@ void dobonus(char bonusonly)
                 KB_FlushKeyBoardQueue();
                 clearview(0L);
                 nextpage();
+                suckcache(anim); // Clean up animation cache
             }
 
             sound(PIPEBOMB_EXPLODE);
@@ -8821,12 +9081,15 @@ void dobonus(char bonusonly)
                 playanm("vol4e1.anm",8);
                 clearview(0L);
                 nextpage();
+                suckcache(anim); // Clean up animation cache
                 playanm("vol4e2.anm",10);
                 clearview(0L);
                 nextpage();
+                suckcache(anim); // Clean up animation cache
                 playanm("vol4e3.anm",11);
                 clearview(0L);
                 nextpage();
+                suckcache(anim); // Clean up animation cache
             }
 
             FX_StopAllSounds();
@@ -8859,6 +9122,7 @@ void dobonus(char bonusonly)
 
             clearview(0L);
             nextpage();
+            suckcache(anim); // Clean up animation cache
             palto(0,0,0,63);
 
             FX_StopAllSounds();
@@ -8881,6 +9145,7 @@ void dobonus(char bonusonly)
                 while(totalclock < ototalclock) getpackets();
                 clearview(0L);
                 nextpage();
+                suckcache(anim); // Clean up animation cache
 
                 FX_StopAllSounds();
                 clearsoundlocks();
@@ -8918,6 +9183,7 @@ void dobonus(char bonusonly)
             KB_FlushKeyBoardQueue();
 
             clearview(0L);
+            suckcache(anim); // Clean up animation cache
 
             break;
     }
@@ -9225,6 +9491,11 @@ void dobonus(char bonusonly)
         else break;
         nextpage();
     }
+
+    // Add cleanup at end of function
+    MUSIC_StopSong();
+    FX_StopAllSounds();
+    clearsoundlocks();
 }
 
 

@@ -3341,6 +3341,46 @@ void logoanimsounds(long fr)
     }
 }
 
+void logoanimsounds1(long fr)
+{
+    switch(fr)
+    {
+        case 1:
+            sound(LOGO1);
+            break;
+    }
+}
+
+void logoanimsounds2(long fr)
+{
+    switch(fr)
+    {
+        case 1:
+            sound(LOGO2);
+            break;
+    }
+}
+
+void logoanimsounds3(long fr)
+{
+    switch(fr)
+    {
+        case 1:
+            sound(LOGO3);
+            break;
+    }
+}
+
+void logoanimsounds4(long fr)
+{
+    switch(fr)
+    {
+        case 1:
+            sound(LOGO4);
+            break;
+    }
+}
+
 void intro4animsounds(long fr)
 {
     switch(fr)
@@ -3440,73 +3480,86 @@ void endanimvol43(long fr)
 }
 
 
-long lastanimhack=0;
-void playanm(char *fn,char t)
+long lastanimhack = 0;
+void playanm(char *fn, char t)
 {
-        char *animbuf, *palptr;
-    long i, j, k, length=0, numframes=0;
-    int32 handle=-1;
+    char *animbuf, *palptr;
+    long i, j, k, length = 0, numframes = 0;
+    int32 handle = -1;
 
-//    return;
-
-    if(t != 7 && t != 9 && t != 10 && t != 11)
+    if (t != 7 && t != 9 && t != 10 && t != 11)
+    {
         KB_FlushKeyboardQueue();
+    }
 
-    if( KB_KeyWaiting() )
+    if (KB_KeyWaiting())
     {
         FX_StopAllSounds();
         goto ENDOFANIMLOOP;
     }
 
-        handle = kopen4load(fn,0);
-        if(handle == -1) return;
-        length = kfilelength(handle);
+    handle = kopen4load(fn, 0);
+    if (handle == -1)
+    {
+        return;
+    }
+    length = kfilelength(handle);
 
-    walock[MAXTILES-3-t] = 219+t;
+    walock[MAXTILES-3-t] = 219 + t;
 
-    if(anim == 0 || lastanimhack != (MAXTILES-3-t))
-        allocache((long *)&anim,length+sizeof(anim_t),&walock[MAXTILES-3-t]);
+    if (anim == 0 || lastanimhack != (MAXTILES - 3 - t))
+    {
+        allocache((long *)&anim, length + sizeof(anim_t), 
+                 &walock[MAXTILES - 3 - t]);
+    }
 
-    animbuf = (char *)(FP_OFF(anim)+sizeof(anim_t));
+    animbuf = (char *)(FP_OFF(anim) + sizeof(anim_t));
+    lastanimhack = (MAXTILES - 3 - t);
 
-    lastanimhack = (MAXTILES-3-t);
+    tilesizx[MAXTILES - 3 - t] = 200;
+    tilesizy[MAXTILES - 3 - t] = 320;
 
-    tilesizx[MAXTILES-3-t] = 200;
-    tilesizy[MAXTILES-3-t] = 320;
+    kread(handle, animbuf, length);
+    kclose(handle);
 
-        kread(handle,animbuf,length);
-        kclose(handle);
+    ANIM_LoadAnim(animbuf);
+    numframes = ANIM_NumFrames();
+    palptr = ANIM_GetPalette();
 
-        ANIM_LoadAnim (animbuf);
-        numframes = ANIM_NumFrames();
+    for (i = 0; i < 256; i++)
+    {
+        j = (i << 2);
+        k = j - i;
+        tempbuf[j + 0] = (palptr[k + 2] >> 2);
+        tempbuf[j + 1] = (palptr[k + 1] >> 2);
+        tempbuf[j + 2] = (palptr[k + 0] >> 2);
+        tempbuf[j + 3] = 0;
+    }
 
-        palptr = ANIM_GetPalette();
-        for(i=0;i<256;i++)
-        {
-                j = (i<<2); k = j-i;
-                tempbuf[j+0] = (palptr[k+2]>>2);
-                tempbuf[j+1] = (palptr[k+1]>>2);
-                tempbuf[j+2] = (palptr[k+0]>>2);
-                tempbuf[j+3] = 0;
-        }
-
-        VBE_setPalette(0L,256L,tempbuf);
+    VBE_setPalette(0L, 256L, tempbuf);
 
     ototalclock = totalclock + 10;
 
-        for(i=1;i<numframes;i++)
+    for (i = 1; i < numframes; i++)
+    {
+        while (totalclock < ototalclock)
         {
-       while(totalclock < ototalclock)
-       {
-          if( KB_KeyWaiting() )
-              goto ENDOFANIMLOOP;
-          getpackets();
-       }
+            if (KB_KeyWaiting())
+            {
+                goto ENDOFANIMLOOP;
+            }
+            getpackets();
+        }
 
        if(t == 10) ototalclock += 14;
        else if(t == 9) ototalclock += 10;
        else if(t == 7) ototalclock += 18;
+
+       // t6 is the number of the sound where 120/14=8.57FPS (ep4 intro ID is 6)
+       // the latter number is same in game.c, menues.c, premap.c
        else if(t == 6) ototalclock += 14;
+
+
        else if(t == 5) ototalclock += 9;
        else if(ud.volume_number == 3) ototalclock += 10;
        else if(ud.volume_number == 2) ototalclock += 10;
@@ -3525,11 +3578,144 @@ void playanm(char *fn,char t)
        else if(t == 6) first4animsounds(i);
        else if(t == 5) logoanimsounds(i);
        else if(t < 4) endanimsounds(i);
-        }
 
-    ENDOFANIMLOOP:
+    }
 
-    ANIM_FreeAnim ();
-    walock[MAXTILES-3-t] = 1;
+ENDOFANIMLOOP:
+
+    FX_StopAllSounds();
+    clearsoundlocks();
+    suckcache(anim); // Clean up animation cache
+    walock[MAXTILES - 3 - t] = 1;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Revised playanm_split (keyboard handling removed, comments preserved)
+void playanm_split(char *fn, char t)
+{
+    char *animbuf, *palptr;
+    long i, j, k, length = 0, numframes = 0;
+    
+    // Initialize additional delay for last frame
+    long last_frame_extra_delay = 0;
+    int32 handle = -1;
+
+    handle = kopen4load(fn, 0);
+    if (handle == -1)
+    {
+        return;
+    }
+    length = kfilelength(handle);
+
+    walock[MAXTILES-3-t] = 219 + t;
+
+    if (anim == 0 || lastanimhack != (MAXTILES - 3 - t))
+    {
+        allocache((long *)&anim, length + sizeof(anim_t),
+                 &walock[MAXTILES - 3 - t]);
+    }
+
+    animbuf = (char *)(FP_OFF(anim) + sizeof(anim_t));
+    lastanimhack = (MAXTILES - 3 - t);
+
+    tilesizx[MAXTILES - 3 - t] = 200;
+    tilesizy[MAXTILES - 3 - t] = 320;
+
+    kread(handle, animbuf, length);
+    kclose(handle);
+
+    ANIM_LoadAnim(animbuf);
+    numframes = ANIM_NumFrames();
+    palptr = ANIM_GetPalette();
+
+    for (i = 0; i < 256; i++)
+    {
+        j = (i << 2);
+        k = j - i;
+        tempbuf[j + 0] = (palptr[k + 2] >> 2);
+        tempbuf[j + 1] = (palptr[k + 1] >> 2);
+        tempbuf[j + 2] = (palptr[k + 0] >> 2);
+        tempbuf[j + 3] = 0;
+    }
+
+    VBE_setPalette(0L, 256L, tempbuf);
+
+    ototalclock = totalclock + 10;
+
+    for (i = 1; i < numframes; i++)
+    {
+        while (totalclock < ototalclock)
+        {
+            // Check pressing Enter or Space or Escape to interrupt the animation
+
+            if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
+            {
+                FX_StopAllSounds();
+                clearsoundlocks();
+                goto ENDOFANIMLOOP;
+            }
+            getpackets();
+        }
+
+       if(t == 10) ototalclock += 14;
+       else if(t == 9) ototalclock += 10;
+       else if(t == 7) ototalclock += 18;
+
+       // t6 is the number of the sound where 120/14=8.57FPS (ep4 intro ID is 6)
+       // the latter number is same in game.c, menues.c, premap.c
+       else if(t == 6) ototalclock += 14;
+
+
+       else if(t == 5) ototalclock += 9;
+       else if(ud.volume_number == 3) ototalclock += 10;
+       else if(ud.volume_number == 2) ototalclock += 10;
+       else if(ud.volume_number == 1) ototalclock += 18;
+       else                           ototalclock += 10;
+
+       waloff[MAXTILES-3-t] = FP_OFF(ANIM_DrawFrame(i));
+       rotatesprite(0<<16,0<<16,65536L,512,MAXTILES-3-t,0,0,2+4+8+16+64, 0,0,xdim-1,ydim-1);
+       nextpage();
+
+       if(t == 8) endanimvol41(i);
+       else if(t == 10) endanimvol42(i);
+       else if(t == 11) endanimvol43(i);
+       else if(t == 9) intro42animsounds(i);
+       else if(t == 7) intro4animsounds(i);
+       else if(t == 6) first4animsounds(i);
+       else if(t == 5) logoanimsounds(i);
+       else if(t < 4) endanimsounds(i);       
+        
+    }
+
+ENDOFANIMLOOP:
+    FX_StopAllSounds();
+    clearsoundlocks();
+    // Clean up animation cache
+    suckcache(anim);
+    walock[MAXTILES - 3 - t] = 1;
+}

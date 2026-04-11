@@ -21,15 +21,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 Original Source: 1996 - Todd Replogle, Ken Silverman
 Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
+
+The original Duke Nukem 3D's pragmas with "bswap" instruction (486+)
+
 */
-
-// Duke07 source port modifications by Darkcrafter07, 2025.
-
-// only one pragma needed a change to compile for 386 CPUs:
-// copybufreverse - we replaced "bswap" 486's instruction
-
-// 386 asm code to replace bswap instruction by Tronix, 2015.
-
 //-------------------------------------------------------------------------
 
 static long dmval;
@@ -1549,9 +1544,7 @@ static long dmval;
 	"jz endloop",\
 	"begloop: mov eax, dword ptr [esi-3]",\
 	"sub esi, 4",\
-	"rol ax, 8",\
-	"rol eax, 16",\
-	"rol ax, 8"\
+	"bswap eax",\
 	"mov dword ptr [edi], eax",\
 	"add edi, 4",\
 	"dec ecx",\
@@ -1980,30 +1973,3 @@ static long timeroffs1mhz;
 #pragma aux printchrasm =\
         "rep stosw",\
         parm [edi][ecx][eax]\
-
-#pragma aux stretchpixhorizbox =\
-    "push ebx"\
-    "push esi"\
-    "push edi"\
-    "push ecx"\
-    "mov esi, [esp + 20]"\
-    "mov edi, [esp + 24]"\
-    "mov ebx, [esp + 28]"\
-   "start_interpolate:"\
-        "mov al, byte ptr [esi]"\
-		"mov ecx, 1"\
-		"interp:"\
-		   "mov byte ptr [esi+ecx], al"\
-		   "add ecx,1"\
-	       "cmp ecx, ebx"\
-           "jle interp"\
-    "interpolate_next:"\
-        "add esi, ebx"\
-    "cmp esi, edi"\
-    "jle start_interpolate"\
-    "pop ecx"\
-    "pop edi"\
-    "pop esi"\
-    "pop ebx"\
-    parm [esi][edi][ebx]\
-    modify [esi edi ebx ecx eax]
