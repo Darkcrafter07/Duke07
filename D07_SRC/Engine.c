@@ -19,6 +19,8 @@
 #include "build.h"
 #include "pragmas.h"
 
+#include "names.h"
+
 long stereowidth = 23040, stereopixelwidth = 28, ostereopixelwidth = -1;
 volatile long stereomode = 0, visualpage, activepage, whiteband, blackband;
 volatile char oa1, o3c2, ortca, ortcb, overtbits, laststereoint;
@@ -3715,6 +3717,10 @@ drawsprite (long snum)
 	short tilenum, spritenum;
 	char swapped, daclip;
 
+	// portal variables start
+	long n, ang, n_angle, u_scale;
+	// portal variables finish
+
 	tspr = tspriteptr[snum];
 
 	xb = spritesx[snum];
@@ -3807,6 +3813,7 @@ drawsprite (long snum)
 			linuminc = -divscale24(xspan,xsiz);
 			linum = mulscale8((lx<<8)-x2,linuminc);
 		}
+
 		if ((cstat&8) > 0)
 		{
 			yinc = -yinc;
@@ -3997,6 +4004,28 @@ drawsprite (long snum)
 		if (lwall[xb1[MAXWALLSB-1]] < 0) lwall[xb1[MAXWALLSB-1]] = 0;
 		if (lwall[xb2[MAXWALLSB-1]] >= xspan) lwall[xb2[MAXWALLSB-1]] = xspan-1;
 
+		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
+		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
+		{
+                    // use mulscale16, to evade IDIV crash
+                    n = mulscale16(xdimenrecip, viewingrange);
+                    
+                    // crash F7 FB protection: if yp (distance) is too small, assembly crashes
+                    i = yp; if (i < 1024) i = 1024;
+        
+                    for(x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+                    {
+                        // sky effect: U-coord is linked to player angle, not to a sprite width
+                        // adding "-" before the formula to flip x-axism of the image to look correct
+                        lwall[x] = -((mulscale23(x - halfxdimen, n) + globalang) & 2047) * xspan >> 11;
+        
+                        // immediately write swall here, not to do another cycle below
+                        swall[x] = mulscale19(i, xdimscale);
+                    }
+		}
+		// ======= parallax texturing on wall aligned sprites for portals finish =====================
+
 		if ((swapped^((cstat&4)>0)) > 0)
 		{
 			j = xspan-1;
@@ -4137,6 +4166,68 @@ drawsprite (long snum)
 				}
 			}
 		}
+
+		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
+		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
+		{
+		    // --- horizontal (U) ---
+		    // to make texture thinner by width increase n_angle.
+		    n_angle = mulscale15(xdimenrecip, viewingrange); // too wide yet
+		    n_angle = n_angle + (n_angle >> 4);
+		    
+		    // here you can still try to make it thiner but it's not recommended
+		    u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
+		
+		    // --- correct x-axis mapping start
+		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    {
+		        // adding multiplier for the width correction
+		        lwall[x] = ((mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
+		        swall[x] = mulscale16(xdimscale, viewingrange);
+		    }
+		    // --- correct x-axis mapping finish
+
+		    // --- the x-axis to follow your step and view start
+		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    //{
+		    //    // change sign before mulscale23, it was (x-half), now (half-x). 
+		    //    lwall[x] = ((mulscale23(halfxdimen - x, n_angle) + globalang) & 2047) * 128 >> 11;
+		    //    swall[x] = mulscale16(xdimscale, viewingrange);
+		    //}
+		    // --- the x-axis to follow your step and view finish
+
+		    // the x-axis to only follow your view start
+		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    //{
+		    //    // adding multiplier for the width correction
+		    //    lwall[x] = ((-mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
+		    //    swall[x] = mulscale16(xdimscale, viewingrange);
+		    //}
+		    // the x-axis to only follow your view start
+		
+		    // --- vertical (V) ---
+		    // if squished — then globalyscale is too small. 
+		    // increase it. It's 512 in parascan (8<<6), make it depend on ydim.
+		    
+		    globalshiftval = 32 - (picsiz[tilenum] >> 4);
+		
+		    // main fix for the height:
+		    // pick the value as such, as for the sprite height corresponded width.
+		    // 6L is good, lesser values gonna make it bigger
+		    globalyscale = (6L << (globalshiftval - 20)); 
+		
+		    if (globalyscale <= 0) globalyscale = 1;
+		
+		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
+		    globalzd += (globalhoriz * globalyscale << 3);
+		
+		    globalpicnum = tilenum;
+		    globalshade = tspr->shade;
+		    globalpal = tspr->pal;
+		    globvis = 0;
+		}
+		// ======= parallax texturing on wall aligned sprites for portals finish =====================
 
 			//sprite
 		if ((searchit >= 1) && (searchx >= xb1[MAXWALLSB-1]) && (searchx <= xb2[MAXWALLSB-1]))
@@ -8418,12 +8509,12 @@ char getpixel(long x, long y)
 	return(readpixel(ylookup[y]+x+frameplace));
 }
 
-	//MUST USE RESTOREFORDRAWROOMS AFTER DRAWING
-static long setviewcnt = 0;
-static long bakvidoption[4];
-static long bakframeplace[4], bakxsiz[4], bakysiz[4];
-static long bakwindowx1[4], bakwindowy1[4];
-static long bakwindowx2[4], bakwindowy2[4];
+	//MUST USE SETVIEWBACK AFTER DRAWING
+long setviewcnt = 0;
+long bakvidoption[4];
+long bakframeplace[4], bakxsiz[4], bakysiz[4];
+long bakwindowx1[4], bakwindowy1[4];
+long bakwindowx2[4], bakwindowy2[4];
 
 setviewtotile(short tilenume, long xsiz, long ysiz)
 {
@@ -8445,7 +8536,7 @@ setviewtotile(short tilenume, long xsiz, long ysiz)
 	setviewcnt++;
 }
 
-setviewback()
+setviewback() // formerly known as restorefordrawrooms
 {
 	long i, j, k, xsiz, ysiz;
 

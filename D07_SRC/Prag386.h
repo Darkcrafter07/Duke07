@@ -1952,3 +1952,4 @@ static long timeroffs1mhz;
 	"add eax, 0x0fff0000",\
 	"skipit:",\
 	parm [ebx][eax]\
+

@@ -22,18 +22,23 @@ darkcrafter774@gmail.com
 *** if you want to disable low detail mode, edit eng386.c as such:
     set "use_lqmode" variable to 0 and use A.asm (NOT ALQ2X-ALQ3X!!!).
 ---------------------------
-13. To build for 486, navigate to D07_SRC again
+13. To build for Pentium, navigate to D07_SRC again
 14. Delete all *.obj files if found
 15. Run file "Make.bat"
 16. Copy files a.obj, k.obj, engine.obj, cache1d.obj, mmulti.obj
    to D07_source
 17. Navigate to D07_source again.
-18. Copy file "Prag486.h" as "Pragmas.h" (replace)
+18. Copy file "Prag586.h" as "Pragmas.h" (replace)
 19. Run file "Make.bat"
 20. Run file BG.bat
 21. Copy Duke07.exe and D07LQ2X.exe to the folder where your 
     legally obtained copy of Duke Nukem 3D Atomic Edition 1.4
     or 1.5 is placed
+
+If there's an esoteric error like "this line is cursed", inspect
+ALL of your source files so that the final line MUST be EMPTY,
+put your keyboard cursor on a last line "short something = -1",
+press ENTER, then press ENTER AGAIN and SAVE.
 
 You may run it with a /nofpu command to degrade slopes rendering
 quality to run on very old and slow 486 and even 386 without FPUs.
@@ -46,6 +51,109 @@ D07LQ2X.exe
 
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
+===========================================================================
+v0.21 features (April 22, 2026):
+- first attempt to implement wall aligned sprite portals.
+  They're like 1-sided only but allow to connect any part of a map,
+  in any place, via sprite portal, forming a window passage. It was
+  developed really throughly to make sure they don't bog even systems
+  as old as 486SX too much and not cause errors and crashes.
+
+  HOW to create them: select a tile #4096 (PORTAL0), put it anywhere in map,
+  make it flat (recommended) by placing a cursor at them and pressing "R",
+  you may align them to walls by pressing "O", hold shift and hold left
+  moust button and pull them slightly away from the wall so that it doesn't
+  get swolen by it. Then place a tile #621 (CAMERA1) in any place of a map
+  where you want this portal to show image from. Duplicate CAMERA1 and give
+  it a tile #5062 (PRTLTELEPDEST) - that's your teleport destination. The
+  engine makes both CAMERA1 and PRTLTELEPDEST that ARE LINKED to a portal
+  INVISIBLE.
+
+  Give your portal a hitag that corresponds to a lotag of CAMERA1 and 
+  PRTLTELEPDEST (yeah CAMERA1 and PRTLTELEPDEST are configured SAME WAY!).
+  For example, PORTAL(hitag:9970,lotag:0), CAMERA1(hitag:0,lotag9970),
+  PRTLTELEPDEST(hitag:0,lotag9970).
+  E.g, they're set just like security cameras and don't interfere with them
+  but make sure NOT to use a CAMERA1 sprite that is already connected to
+  any security camera. Get in 2D mode (NumPad ENTER), get cursor
+  over a sprite, press ALT+H to assign a hitag, enter a value, press reg-
+  -ular ENTER, then press ALT+T to assign a lotag, enter a value, press reg
+  -ular ENTER again.
+  At this time you can only create 1 PORTAL PAIR (PORTAL0 and PORTAL1), do
+  NOT use the same tile PORTAL0 for another side! Use PORTAL1 like that
+  PORTAL1(hitag:9971,lotag:0), CAMERA1(hitag:0,lotag9971),
+  PRTLTELEPDEST(hitag:0,lotag9971).
+
+  Known limitations:
+     - there's just ONE pair PORTAL0, PORTAL1, more to come;
+     - low detail mode doesn't update picture in bottom left corner,
+       I don't know how to fix this yet. At least I could fix tilt!
+     - D07LQ2X still draws scanline tutti-frutti inside portals because
+       the asm routines are designed to draw 320x200 image, not 128x128.
+       The way to fix that would be externing "long ydim" in asm, load
+       that in a register and use instead of hardcoded "200" or whatever
+       value is there...
+     - parallax inside portals suck, it's a subject to improve.
+     - PORTAL tiles MUST BE SQUARE dimensions like 128x128 (low quality),
+       192x192, 256x256 etc to work properly, there is NO way to fix that
+       because there is NO need to do that as you may still resize sprite
+       as you wish and it's not going to stretch contents inside.
+     - it's best to have the same sizes of sprites for one pair like
+       PORTAL0 and PORTAL1. In case it goes crazy, you'd delete and
+       create them again without copy pasting one another for best
+       stability.
+
+            --- implementation details or how it works start ---
+  ***global.c***
+  add new variables below "short camsprite":
+     short portalsprite0 = -1; short portalsprite1 = -1;
+  ***duke3d.h***
+  extern those two new variables below "extern char env_music_fn[4][13];"
+    "extern short camsprite, portalsprite0, portalsprite1;"
+  ***actors.c:***
+  for each PORTAL#x tile create a function that's gonna act like a trigger
+  to activate this particular PORTAL#x tile. movestandablesportal0(ID#128)
+  for PORTAL0 and movestandablesportal1(ID#129) for PORTAL1.
+  ***game.c***
+  include "portals.c" file before displayrooms function, modify it as well
+  in order to call particular portal drawing functions as se40codeportal#x
+  and se40_DrawPortal#x and restore screen after them. Make a function
+  before "short spawn" - startspriteportal and call movestandablesportal0,
+  movestandablesportal1 inside. Modify function "domovethings" in order 
+  to call "startspriteportal" function after "movefta();" call.
+  Modify function "short spawn" in order to include "PORTAL0 and PORTAL1"
+  actors to be included in this line "if( PN != SPEAKER && PN != LETTER..."
+  Place new cases on the new line like if(PN!=PORTAL0&&PN!=PORTAL1 etc),
+    if not done, portals are not going to activate drawing automatically.
+  In the same function "short spawn" extend T temp_data from 6 to 12...
+  like "T1=T2=T3=T4=T5=T6=T7=T8=T9=T10=T11=T12=0;" In the same function,
+    add "case PORTAL0, case PORTAL1" before or after "case VIEWSCREEN".
+  Modify "case CAMERA1-CAMERA4-CAMERAPOLE" to identify cameras linked to
+  portals and hide them. Also add "case PRTLTELEPDEST" to hide them too.
+  ***portals.c*** contains code to draw portals to their respectve tiles.
+  you can add it right in game.c before "displayrooms" but it was decided
+  to put them out in a separate file for an ease of coding. Make sure that
+  if you changed portals.c, you must delete "game.obj" before recompile,
+  otherwise the changes are not going to become.
+  ***sector.c***. Modify function "void checksectors", the very beginning
+  of that function contains a code of portals to teleport player in 3D
+  space. That means it will not teleport you if you jump above it (made
+  specially to allow for better 3D like windows and doors place on facade
+  of multistory buildings). That makes it possible to stack many different
+  portals in the same X,Y space but different height so you can have
+  PORTAL0-1 pair on story #3 and PORTAL2-3 pair on story #4 for example
+  (I didn't implement more than 1 pair though). Make sure that this version
+  only teleports from a CENTER of a sprite, so that's a disatvantage I'm
+  looking forward to fix...
+  ***names.h, soundefs.h, user.con*** include new cases PORTAL0 4960,
+  PORTAL1 4961, PRTLTELEPDEST 5062.
+  ***engine.c, eng386.c***. Modify "drawsprite and drawsprite_LQ2X" functs
+  in order to depict texture contents on flats sprites like parascan does
+  to floors and ceilings "parallax textures" but inside a trapezoid frame,
+  also known as a "wall aligned flat sprite". I'd like to do the same to
+  ground aligned sprites so that we could have holes in floors, ceilings.
+            --- implementation details or how it works finish ---
+
 ===========================================================================
 v0.20 features (April 11, 2026):
 - first, initial GitHub upload, forked from "videogamepreservation" archive

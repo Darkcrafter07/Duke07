@@ -1981,29 +1981,3 @@ static long timeroffs1mhz;
         "rep stosw",\
         parm [edi][ecx][eax]\
 
-#pragma aux stretchpixhorizbox =\
-    "push ebx"\
-    "push esi"\
-    "push edi"\
-    "push ecx"\
-    "mov esi, [esp + 20]"\
-    "mov edi, [esp + 24]"\
-    "mov ebx, [esp + 28]"\
-   "start_interpolate:"\
-        "mov al, byte ptr [esi]"\
-		"mov ecx, 1"\
-		"interp:"\
-		   "mov byte ptr [esi+ecx], al"\
-		   "add ecx,1"\
-	       "cmp ecx, ebx"\
-           "jle interp"\
-    "interpolate_next:"\
-        "add esi, ebx"\
-    "cmp esi, edi"\
-    "jle start_interpolate"\
-    "pop ecx"\
-    "pop edi"\
-    "pop esi"\
-    "pop ebx"\
-    parm [esi][edi][ebx]\
-    modify [esi edi ebx ecx eax]

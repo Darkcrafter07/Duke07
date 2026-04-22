@@ -1973,3 +1973,4 @@ static long timeroffs1mhz;
 #pragma aux printchrasm =\
         "rep stosw",\
         parm [edi][ecx][eax]\
+

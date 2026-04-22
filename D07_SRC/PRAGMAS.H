@@ -1945,26 +1945,3 @@ static long timeroffs1mhz;
 	"skipit:",\
 	parm [ebx][eax]\
 
-      //64-bit + 64-bit = 64-bit value
-#pragma aux add32x32fp =\
-	"add [esi], eax",\
-	"adc [esi+4], edx",\
-	parm [esi] [eax edx]\
-	modify exact [eax edx]\
-
-      //32.32fp * 32.fp = 64-bit value
-#pragma aux mul32x32fp =\
-	"push edi",\
-	"mov edi, edx",\
-	"mov eax, ebx",\
-	"mul ecx",\
-	"xchg eax, edx",\
-	"mov eax, edi",\
-	"mul ecx",\
-	"add eax, edx",\
-	"adc edx, 0",\
-	"mov [esi], eax",\
-	"mov dword ptr [esi+4], edx",\
-	"pop edi",\
-	parm [esi] [ebx edx] [ecx]\
-	modify exact [eax ebx ecx edx edi]\

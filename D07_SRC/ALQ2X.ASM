@@ -59,10 +59,6 @@ EXTRN _espbak : dword
 EXTRN _pow2char : near
 EXTRN _pow2long : near
 
-EXTRN _gbuf : dword
-EXTRN _gpinc : dword
-EXTRN _glogx : dword
-EXTRN _glogy : dword
 EXTRN _slopeisfar : byte
 EXTRN _reciptabletextureint : near
 

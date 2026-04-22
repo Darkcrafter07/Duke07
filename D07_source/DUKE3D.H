@@ -211,6 +211,14 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define T5  hittype[i].temp_data[4]
 #define T6  hittype[i].temp_data[5]
 
+// let's add more for portals
+#define T7  hittype[i].temp_data[6]
+#define T8  hittype[i].temp_data[7]
+#define T9  hittype[i].temp_data[8]
+#define T10 hittype[i].temp_data[9]
+#define T11 hittype[i].temp_data[10]
+#define T12 hittype[i].temp_data[11]
+
 #define ESCESCAPE if(KB_KeyPressed( sc_Escape ) ) gameexit(" ");
 
 #define IFWITHIN(B,E) if((PN)>=(B) && (PN)<=(E))
@@ -275,7 +283,7 @@ extern short numanimwalls,probey,lastprobey;
 
 extern char *mymembuf;
 extern char typebuflen,typebuf[41];
-extern char MusicPtr[768000];
+extern char MusicPtr[384000];
 extern long msx[2048],msy[2048];
 extern short cyclers[MAXCYCLERS][6],numcyclers;
 extern char myname[32];
@@ -423,7 +431,7 @@ extern char ipath[80],opath[80];
 
 extern char music_fn[4][11][13],music_select;
 extern char env_music_fn[4][13];
-extern short camsprite;
+extern short camsprite, portalsprite0, portalsprite1;
 
 // extern char gotz;
 extern char inspace(short sectnum);
@@ -436,7 +444,7 @@ typedef struct weaponhit
     short tempang,actorstayput,dispicnum;
     short timetosleep;
     long floorz,ceilingz,lastvx,lastvy,bposx,bposy,bposz;
-    long temp_data[6];
+    long temp_data[12]; // increased from 6 to 12 for portals
 };
 
 extern struct weaponhit hittype[MAXSPRITES];

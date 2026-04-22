@@ -27,7 +27,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "duke3d.h"
 
 char *mymembuf;
-char MusicPtr[768000];
+char MusicPtr[384000];
 
 short global_random;
 short neartagsector, neartagwall, neartagsprite;
@@ -52,6 +52,7 @@ unsigned char tempbuf[2048], packbuf[576];
 char buf[80];
 
 short camsprite;
+short portalsprite0 = -1; short portalsprite1 = -1;
 short mirrorwall[64], mirrorsector[64], mirrorcnt;
 
 int current_menu;

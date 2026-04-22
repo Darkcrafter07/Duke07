@@ -762,3 +762,14 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define SIGN2 4912
 #define JURYGUY 4943
 
+#define PORTAL0 4960
+#define PORTAL1 4961
+#define PORTAL2 4962
+#define PORTAL3 4963
+#define PORTAL4 4964
+#define PORTAL5 4965
+#define PORTAL6 4966
+#define PORTAL7 4967
+
+#define PRTLTELEPDEST 5062
+

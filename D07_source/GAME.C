@@ -2609,156 +2609,153 @@ void drawbackground(void)
 #define FOFTILEY 32
 long tempsectorz[MAXSECTORS];
 long tempsectorpicnum[MAXSECTORS];
-//short tempcursectnum;
+// short tempcursectnum;
 
-SE40_Draw(int spnum,long x,long y,long z,short a,short h,long smoothratio)
+SE40_Draw(int spnum, long x, long y, long z, short a, short h, long smoothratio)
 {
- int i=0,j=0,k=0;
- int floor1=0,floor2=0,ok=0,fofmode=0;
- long offx,offy;
+    long i = 0, j = 0, k = 0;
+    long floor1 = 0, floor2 = 0, ok = 0, fofmode = 0;
+    long offx, offy;
 
- if(sprite[spnum].ang!=512) return;
+    if (sprite[spnum].ang != 512) return;
 
- i = FOFTILE;    //Effect TILE
- if (!(gotpic[i>>3]&(1<<(i&7)))) return;
- gotpic[i>>3] &= ~(1<<(i&7));
+    i = FOFTILE;    // Effect TILE
+    if (!(gotpic[i >> 3] & (1 << (i & 7)))) return;
+    gotpic[i >> 3] &= ~(1 << (i & 7));
 
- floor1=spnum;
+    floor1 = spnum;
 
- if(sprite[spnum].lotag==42) fofmode=40;
- if(sprite[spnum].lotag==43) fofmode=41;
- if(sprite[spnum].lotag==44) fofmode=40;
- if(sprite[spnum].lotag==45) fofmode=41;
+    if (sprite[spnum].lotag == 42) fofmode = 40;
+    if (sprite[spnum].lotag == 43) fofmode = 41;
+    if (sprite[spnum].lotag == 44) fofmode = 40;
+    if (sprite[spnum].lotag == 45) fofmode = 41;
 
-// fofmode=sprite[spnum].lotag-2;
+    // fofmode = sprite[spnum].lotag - 2;
 
-// sectnum=sprite[j].sectnum;
-// sectnum=cursectnum;
- ok++;
+    // sectnum = sprite[j].sectnum;
+    // sectnum = cursectnum;
+    ok++;
 
-/*  recursive?
- for(j=0;j<MAXSPRITES;j++)
- {
-  if(
-     sprite[j].sectnum==sectnum &&
-     sprite[j].picnum==1 &&
-     sprite[j].lotag==110
-    ) { DrawFloorOverFloor(j); break;}
- }
-*/
+    // recursive?
+    //for (j = 0; j < MAXSPRITES; j++)
+    //{
+    //    if (sprite[j].sectnum == sectnum && sprite[j].picnum == 1 && sprite[j].lotag == 110 )
+    //    { DrawFloorOverFloor(j); break; }
+    //}
+    //
 
-// if(ok==0) { Message("no fof",RED); return; }
+    // if (ok == 0) { Message("no fof", RED); return; }
 
- for(j=0;j<MAXSPRITES;j++)
- {
-  if(
-     sprite[j].picnum==1 &&
-     sprite[j].lotag==fofmode &&
-     sprite[j].hitag==sprite[floor1].hitag
-    ) { floor1=j; fofmode=sprite[j].lotag; ok++; break;}
- }
-// if(ok==1) { Message("no floor1",RED); return; }
-
- if(fofmode==40) k=41; else k=40;
-
- for(j=0;j<MAXSPRITES;j++)
- {
-  if(
-     sprite[j].picnum==1 &&
-     sprite[j].lotag==k &&
-     sprite[j].hitag==sprite[floor1].hitag
-    ) {floor2=j; ok++; break;}
- }
-
-// if(ok==2) { Message("no floor2",RED); return; }
-
- for(j=0;j<MAXSPRITES;j++)  // raise ceiling or floor
- {
-  if(sprite[j].picnum==1 &&
-     sprite[j].lotag==k+2 &&
-     sprite[j].hitag==sprite[floor1].hitag
-    )
+    for (j = 0; j < MAXSPRITES; j++)
     {
-     if(k==40)
-     {tempsectorz[sprite[j].sectnum]=sector[sprite[j].sectnum].floorz;
-      sector[sprite[j].sectnum].floorz+=(((z-sector[sprite[j].sectnum].floorz)/32768)+1)*32768;
-      tempsectorpicnum[sprite[j].sectnum]=sector[sprite[j].sectnum].floorpicnum;
-      sector[sprite[j].sectnum].floorpicnum=13;
-     }
-     if(k==41)
-     {tempsectorz[sprite[j].sectnum]=sector[sprite[j].sectnum].ceilingz;
-      sector[sprite[j].sectnum].ceilingz+=(((z-sector[sprite[j].sectnum].ceilingz)/32768)-1)*32768;
-      tempsectorpicnum[sprite[j].sectnum]=sector[sprite[j].sectnum].ceilingpicnum;
-      sector[sprite[j].sectnum].ceilingpicnum=13;
-     }
+        if (
+            sprite[j].picnum == 1 &&
+            sprite[j].lotag == fofmode &&
+            sprite[j].hitag == sprite[floor1].hitag
+        ) { floor1 = j; fofmode = sprite[j].lotag; ok++; break; }
     }
- }
+    // if (ok == 1) { Message("no floor1", RED); return; }
 
- i=floor1;
- offx=x-sprite[i].x;
- offy=y-sprite[i].y;
- i=floor2;
- drawrooms(offx+sprite[i].x,offy+sprite[i].y,z,a,h,sprite[i].sectnum);
- animatesprites(x,y,a,smoothratio);
- drawmasks();
+    if (fofmode == 40) k = 41; else k = 40;
 
- for(j=0;j<MAXSPRITES;j++)  // restore ceiling or floor
- {
-  if(sprite[j].picnum==1 &&
-     sprite[j].lotag==k+2 &&
-     sprite[j].hitag==sprite[floor1].hitag
-    )
+    for (j = 0; j < MAXSPRITES; j++)
     {
-     if(k==40)
-     {sector[sprite[j].sectnum].floorz=tempsectorz[sprite[j].sectnum];
-      sector[sprite[j].sectnum].floorpicnum=tempsectorpicnum[sprite[j].sectnum];
-     }
-     if(k==41)
-     {sector[sprite[j].sectnum].ceilingz=tempsectorz[sprite[j].sectnum];
-      sector[sprite[j].sectnum].ceilingpicnum=tempsectorpicnum[sprite[j].sectnum];
-     }
-    }// end if
- }// end for
+        if (
+            sprite[j].picnum == 1 &&
+            sprite[j].lotag == k &&
+            sprite[j].hitag == sprite[floor1].hitag
+        ) { floor2 = j; ok++; break; }
+    }
+
+    // if (ok == 2) { Message("no floor2", RED); return; }
+
+    for (j = 0; j < MAXSPRITES; j++)  // raise ceiling or floor
+    {
+        if (sprite[j].picnum == 1 &&
+            sprite[j].lotag == k + 2 &&
+            sprite[j].hitag == sprite[floor1].hitag)
+        {
+            if (k == 40)
+            {
+                tempsectorz[sprite[j].sectnum] = sector[sprite[j].sectnum].floorz;
+                sector[sprite[j].sectnum].floorz += (((z - sector[sprite[j].sectnum].floorz) / 32768) + 1) * 32768;
+                tempsectorpicnum[sprite[j].sectnum] = sector[sprite[j].sectnum].floorpicnum;
+                sector[sprite[j].sectnum].floorpicnum = 13;
+            }
+            if (k == 41)
+            {
+                tempsectorz[sprite[j].sectnum] = sector[sprite[j].sectnum].ceilingz;
+                sector[sprite[j].sectnum].ceilingz += (((z - sector[sprite[j].sectnum].ceilingz) / 32768) - 1) * 32768;
+                tempsectorpicnum[sprite[j].sectnum] = sector[sprite[j].sectnum].ceilingpicnum;
+                sector[sprite[j].sectnum].ceilingpicnum = 13;
+            }
+        }
+    }
+
+    i = floor1;
+    offx = x - sprite[i].x;
+    offy = y - sprite[i].y;
+    i = floor2;
+    drawrooms(offx + sprite[i].x, offy + sprite[i].y, z, a, h, sprite[i].sectnum);
+    animatesprites(x, y, a, smoothratio);
+    drawmasks();
+
+    for (j = 0; j < MAXSPRITES; j++)  // restore ceiling or floor
+    {
+        if (sprite[j].picnum == 1 && sprite[j].lotag == k + 2 && sprite[j].hitag == sprite[floor1].hitag)
+        {
+            if (k == 40)
+            {
+                sector[sprite[j].sectnum].floorz = tempsectorz[sprite[j].sectnum];
+                sector[sprite[j].sectnum].floorpicnum = tempsectorpicnum[sprite[j].sectnum];
+            }
+            if (k == 41)
+            {
+                sector[sprite[j].sectnum].ceilingz = tempsectorz[sprite[j].sectnum];
+                sector[sprite[j].sectnum].ceilingpicnum = tempsectorpicnum[sprite[j].sectnum];
+            }
+        } // end if
+    } // end for
 
 } // end SE40
 
-
-
-
-void se40code(long x,long y,long z,long a,long h, long smoothratio)
+void se40code(long x, long y, long z, long a, long h, long smoothratio)
 {
-    int i;
+    long i;
 
     i = headspritestat[15];
-    while(i >= 0)
+    while (i >= 0)
     {
-        switch(sprite[i].lotag)
+        switch (sprite[i].lotag)
         {
-//            case 40:
-//            case 41:
-//                SE40_Draw(i,x,y,a,smoothratio);
-//                break;
+            // case 40:
+            // case 41:
+            //     SE40_Draw(i, x, y, a, smoothratio);
+            //     break;
             case 42:
             case 43:
             case 44:
             case 45:
-                if(ps[screenpeek].cursectnum == sprite[i].sectnum)
-                    SE40_Draw(i,x,y,z,a,h,smoothratio);
+                if (ps[screenpeek].cursectnum == sprite[i].sectnum)
+                    SE40_Draw(i, x, y, z, a, h, smoothratio);
                 break;
         }
         i = nextspritestat[i];
     }
 }
 
-static long oyrepeat=-1;
+#include "portals.c"
 
+static long oyrepeat=-1;
+extern long setviewcnt, bakxsiz[4], bakysiz[4];
+short rendering_portal = 0; // Infinite rendering cycle protection
 void displayrooms(short snum,long smoothratio)
 {
     long cposx,cposy,cposz,dst,j,fz,cz,hz,lz;
-    short sect, cang, k, choriz,tsect;
-    struct player_struct *p;
     long tposx,tposy,tposz,dx,dy,thoriz,i;
-    short tang;
+    long p_xsiz, p_ysiz;
+    short sect, cang, k, choriz,tsect, tang;
+    struct player_struct *p;
 
     p = &ps[snum];
 
@@ -2798,7 +2795,17 @@ void displayrooms(short snum,long smoothratio)
 
         cang = hittype[ud.camerasprite].tempang+mulscale16((long)(((s->ang+1024-hittype[ud.camerasprite].tempang)&2047)-1024),smoothratio);
 
-        se40code(s->x,s->y,s->z,cang,s->yvel,smoothratio);
+        // PORTAL: render portal only if we're NOT in the portal rendering mode
+        if ( portalsprite0 >= 0 && rendering_portal == 0 )
+        {
+            rendering_portal = 1; // enter portal rendering mode
+            se40codeportal0(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal1(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            rendering_portal = 0; // exit portal rendering mode
+        }
+
+        if (rendering_portal == 0) // don't draw standard security cameras inside too
+            se40code(s->x,s->y,s->z,cang,s->yvel,smoothratio);
 
         drawrooms(s->x,s->y,s->z-(4<<8),cang,s->yvel,s->sectnum);
         animatesprites(s->x,s->y,cang,smoothratio);
@@ -2806,6 +2813,8 @@ void displayrooms(short snum,long smoothratio)
     }
     else
     {
+        // fix2:
+
         i = divscale22(1,sprite[p->i].yrepeat+28);
         if (i != oyrepeat)
         {
@@ -2864,6 +2873,35 @@ void displayrooms(short snum,long smoothratio)
                                 choriz = p->ohoriz+p->ohorizoff+mulscale16((long)(p->horiz+p->horizoff-p->ohoriz-p->ohorizoff),smoothratio);
                   }
                   cang += p->look_ang;
+
+	          // PORTAL: render portal ONLY if we're NOT in recursion - start
+	          if (portalsprite0 >= 0 && rendering_portal == 0)
+	          {
+	              rendering_portal = 1;
+	              se40codeportal0(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal1(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              rendering_portal = 0;
+
+	              // --- portal low-detail mode and tile conflict fix start ---
+	              if (setviewcnt > 0)
+	              {
+	                  // get parent tile dimensions from stack
+	                  p_xsiz = bakxsiz[setviewcnt-1]; p_ysiz = bakysiz[setviewcnt-1];
+
+	                  // restore pitch and ylookup
+	                  setvlinebpl(p_ysiz);
+	                  for(i=0, j=0; i<=p_xsiz; i++)
+	                  {
+	                      ylookup[i] = j; j += p_ysiz;
+	                  }
+	              }
+	              // --- portal low-detail mode and tile conflict fix start ---
+	          }
+	          // PORTAL: render portal ONLY if we're NOT in recursion - finish
+	          else if (camsprite >= 0 && rendering_portal == 0)
+	          {
+	              se40code(cposx, cposy, cposz, cang, choriz, smoothratio);
+	          }
 
                   if (p->newowner >= 0)
                   {
@@ -3120,11 +3158,22 @@ char wallswitchcheck(short i)
     return 0;
 }
 
+void startspriteportal(void)
+{
+    // At first, draw the portals
+    movestandablesportal0(); // ST 128 (ID or spritestatus 128)
+    movestandablesportal1(); // ST 129 (ID or spritestatus 129)
+    
+    // Second, make them teleport stuff
+    // turned off because we got teleportation in sector.c, "checksectors" 
+    //movetransportsportal(); // ST 128 (ID or spritestatus 128)    
+    // Both functions share the same spritestat (function call ID)
+}
 
 long tempwallptr;
 short spawn( short j, short pn )
 {
-    short i, s, startwall, endwall, sect, clostest;
+    short i, s, startwall, endwall, sect, clostest, camprtidx;
     long x, y, d;
     spritetype *sp;
 
@@ -3158,35 +3207,42 @@ short spawn( short j, short pn )
         hittype[i].lastvy = 0;
         hittype[i].actorstayput = -1;
 
-        T1 = T2 = T3 = T4 = T5 = T6 = 0;
+        //T1 = T2 = T3 = T4 = T5 = T6 = 0;
+        T1 = T2 = T3 = T4 = T5 = T6 = T7 = T8 = T9 = T10 = T11 = T12 = 0; 
 
         if( PN != SPEAKER && PN != LETTER && PN != DUCK && PN != TARGET && PN != TRIPBOMB && PN != VIEWSCREEN && PN != VIEWSCREEN2 && (CS&48) )
-            if( !(PN >= CRACK1 && PN <= CRACK4) )
+        // it's still gonna push like a button switching all linked cameras but without it the portal is not gonna auto-display
+        // for the portal to display camera contents automatically, otherwise you'd need to push it like a button
+        if( PN != PORTAL0) // if you add more PORTAL#x, without additional "movestandablesportal#x", preceeding PORTAL gonna show last PORTAL#x
+        if( PN != PORTAL1)
         {
-            if(SS == 127) return i;
-            if( wallswitchcheck(i) == 1 && (CS&16) )
+            if( !(PN >= CRACK1 && PN <= CRACK4) )
             {
-                if( PN != ACCESSSWITCH && PN != ACCESSSWITCH2 && sprite[i].pal)
+                if(SS == 127) return i;
+                if( wallswitchcheck(i) == 1 && (CS&16) )
                 {
-                    if( (ud.multimode < 2) || (ud.multimode > 1 && ud.coop==1) )
+                    if( PN != ACCESSSWITCH && PN != ACCESSSWITCH2 && sprite[i].pal)
                     {
-                        sprite[i].xrepeat = sprite[i].yrepeat = 0;
-                        sprite[i].cstat = SLT = SHT = 0;
-                        return i;
+                        if( (ud.multimode < 2) || (ud.multimode > 1 && ud.coop==1) )
+                        {
+                            sprite[i].xrepeat = sprite[i].yrepeat = 0;
+                            sprite[i].cstat = SLT = SHT = 0;
+                            return i;
+                        }
                     }
+                    CS |= 257;
+                    if( sprite[i].pal && PN != ACCESSSWITCH && PN != ACCESSSWITCH2)
+                        sprite[i].pal = 0;
+                    return i;
                 }
-                CS |= 257;
-                if( sprite[i].pal && PN != ACCESSSWITCH && PN != ACCESSSWITCH2)
-                    sprite[i].pal = 0;
-                return i;
-            }
 
-            if( SHT )
-            {
-                changespritestat(i,12);
-                CS |=  257;
-                SH = impact_damage;
-                return i;
+                if( SHT )
+                {
+                    changespritestat(i,12);
+                    CS |=  257;
+                    SH = impact_damage;
+                    return i;
+                }
             }
         }
 
@@ -3756,6 +3812,26 @@ short spawn( short j, short pn )
                 sp->lotag = 1;
                 sp->extra = 1;
                 changespritestat(i,6);
+                break;
+
+            case PORTAL0:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal0 function (1st)
+                // and movetransportsportal (2nd) function
+                // in an order set in "startspriteportal" function
+                changespritestat(i, 128);
+                break;
+
+            case PORTAL1:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal1 function (1st)
+                // and movetransportsportal (2nd) function
+                // in an order set in "startspriteportal" function
+                changespritestat(i, 129);
                 break;
 
             case SHELL: //From the player
@@ -4338,6 +4414,28 @@ short spawn( short j, short pn )
                 changespritestat(i,2);
                 break;
 
+            // prtl teleport destination properties on spawn
+            case PRTLTELEPDEST:
+                sp->cstat |= 32768; // make this prtl telep dest sprite always invisible
+                sp->extra = -1;     // so actors won't attack it
+                break;
+
+            //=== original game code start
+            //case CAMERA1:
+            //case CAMERA1+1:
+            //case CAMERA1+2:
+            //case CAMERA1+3:
+            //case CAMERA1+4:
+            //case CAMERAPOLE:
+            //    sp->extra = 1;
+            //
+            //    if(camerashitable) sp->cstat = 257;
+            //    else sp->cstat = 0;
+            //    
+            // case GENERICPOLE:
+            //=== original game code finish
+
+            // we need to make prtl cams invisible
             case CAMERA1:
             case CAMERA1+1:
             case CAMERA1+2:
@@ -4345,10 +4443,30 @@ short spawn( short j, short pn )
             case CAMERA1+4:
             case CAMERAPOLE:
                 sp->extra = 1;
-
+        
                 if(camerashitable) sp->cstat = 257;
                 else sp->cstat = 0;
-
+        
+                {
+                    // scan all PORTAL sprites on the map
+                    for(camprtidx=0; camprtidx<MAXSPRITES; camprtidx++)
+                    {
+                        // Important: check only prtl. Do NOT touch seccam monitors (VIEWSCREEN)
+                        if ((sprite[camprtidx].picnum == PORTAL0 || sprite[camprtidx].picnum == PORTAL1))
+                        {
+                             if (sprite[camprtidx].hitag == sp->lotag && sp->lotag > 0)
+                             {
+                                // Hide prtl cam
+                                sp->cstat |= 32768;
+                                
+                                // Cache index only into prtl
+                                hittype[camprtidx].temp_data[10] = i; 
+                                break; 
+                             }
+                        }
+                    }
+                }
+        
             case GENERICPOLE:
 
                 if( ud.multimode < 2 && sp->pal != 0 )
@@ -8871,6 +8989,7 @@ char domovethings(void)
     if( ud.pause_on == 0 )
     {
         movefta();//ST 2
+        startspriteportal();    //no ID but both funcs inside are ST 128
         moveweapons();          //ST 5 (must be last)
         movetransports();       //ST 9
 

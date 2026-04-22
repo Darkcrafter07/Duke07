@@ -566,14 +566,16 @@ void operatesectors(short sn,short ii)
             else sprite[j].extra = 1;
             break;
 
-        case 31:
-
-            j = sector[sn].hitag;
-            if(hittype[j].temp_data[4] == 0)
-                hittype[j].temp_data[4] = 1;
-            
-            callsound(sn,ii);
-            break;
+	case 31:
+	    j = sector[sn].hitag;
+	    if (j >= 0 && j < MAXSPRITES) // Protection against out-of-bounds
+	    {
+	        if(hittype[j].temp_data[4] == 0)
+	            hittype[j].temp_data[4] = 1;
+	    }
+	
+	    callsound(sn,ii);
+	    break;
 
         case 26: //The split doors
             i = getanimationgoal(&sptr->ceilingz);
@@ -2884,10 +2886,86 @@ void cheatkeys(short snum)
 void checksectors(short snum)
 {
     long i = -1,oldz;
+    long dx, dy, dzinit, dz;
     struct player_struct *p;
     short j,hitscanwall;
+    short spriteindexportal, camindexportal, prtlteleportdest = -1;
 
     p = &ps[snum];
+
+
+    //T11 (temp_data[10]):camera indexes (camindexportal).
+    //T12 (temp_data[11]):activation stats and portal-camera spin counters.
+    spriteindexportal = headspritesect[p->cursectnum];
+    while(spriteindexportal >= 0)
+    {
+        if(sprite[spriteindexportal].picnum == PORTAL0 || sprite[spriteindexportal].picnum == PORTAL1)
+        {
+            // 1. calc 3D dist to a sprite center
+            dx = klabs(p->posx - sprite[spriteindexportal].x);
+            dy = klabs(p->posy - sprite[spriteindexportal].y);
+            // shift Z by 8 bits as Build scales it 256 times larger?
+            dzinit = (p->posz - sprite[spriteindexportal].z) >> 8;
+            dz = klabs(dzinit);
+
+            // 768 and 72 — proximity ranges
+            if ( ((dx+dy)<768)&&(dz<72) )
+            {
+                // 2. get portal-cam indexes (CAMERA1) from T11 (temp_data[10])
+                camindexportal = hittype[spriteindexportal].temp_data[10];
+
+                // if link is empty or bendup, find cam by tags (hitag -> lotag)
+                if (camindexportal < 0 || sprite[camindexportal].picnum != CAMERA1)
+                {
+                    for(j=0; j<MAXSPRITES; j++)
+                    {
+                        if(sprite[j].picnum == CAMERA1 && sprite[j].lotag == sprite[spriteindexportal].hitag)
+                        {
+                            hittype[spriteindexportal].temp_data[10] = j;
+                            camindexportal = j;
+                            break;
+                        }
+                    }
+                }
+
+                // 3. silent teleportation
+                if (camindexportal >= 0 && camindexportal < MAXSPRITES)
+                {
+                    // search PRTLTELEPDEST, linked with this prtl (hitag -> lotag)
+                    for(j=0; j<MAXSPRITES; j++)
+                    {
+                        if(sprite[j].picnum == PRTLTELEPDEST && sprite[j].lotag == sprite[spriteindexportal].hitag)
+                        {
+                            prtlteleportdest = j;
+                            break;
+                        }
+                    }
+
+                    if (prtlteleportdest >= 0) // if prtl telep dest found - jump there
+                    {
+                        p->posx = sprite[prtlteleportdest].x;
+                        p->posy = sprite[prtlteleportdest].y;
+                        p->posz = sprite[prtlteleportdest].z;
+                        p->ang  = sprite[prtlteleportdest].ang;
+                    }
+                    else // otherwise, fallback to prt cam
+                    {
+                        p->posx = sprite[camindexportal].x;
+                        p->posy = sprite[camindexportal].y;
+                        p->posz = sprite[camindexportal].z;
+                        p->ang  = sprite[camindexportal].ang;
+                    }
+                
+                    updatesector(p->posx, p->posy, &p->cursectnum);
+                    return; 
+                }
+            }
+        }
+        spriteindexportal = nextspritesect[spriteindexportal];
+    }
+
+
+
 
     switch(sector[p->cursectnum].lotag)
     {
@@ -3104,6 +3182,82 @@ void checksectors(short snum)
                     p->pals[2] = 64;
                     p->pals_time = 32;
                     break;
+
+// ========= useless and disabled code start =========================================
+//        // was useful when we had to activate portals by pressing use keys,
+//        // just like buttons but as soon as they're enabled automatically - useless
+//        case PORTAL0:
+//        {
+//            i = headspritestat[1];
+//
+//            while(i >= 0)
+//            {
+//                if( PN == CAMERA1 && SP == 0 && sprite[neartagsprite].hitag == SLT )
+//                {
+//                    SP = 1; //Using this camera
+//
+//                    //we don't need to watch it for portals so comment them out
+//                    //spritesound(MONITOR_ACTIVE,neartagsprite);
+//
+//                    sprite[neartagsprite].owner = i;
+//                    sprite[neartagsprite].yvel = 1;
+//
+//                    j = p->cursectnum;
+//                    p->cursectnum = SECT;
+//                    setpal(p);
+//                    p->cursectnum = j;
+//
+//                    // comment out lines below to disable the fullscreen camera view effect
+//                    //p->newowner = i;
+//                    //return;
+//                }
+//
+//                i = nextspritestat[i];
+//           }
+//        }
+//
+//        CLRCAMPORTAL:
+//
+//        if(i < 0)
+//        {
+//            p->posx = p->oposx;
+//            p->posy = p->oposy;
+//            p->posz = p->oposz;
+//            p->ang = p->oang;
+//            p->newowner = -1;
+//
+//            updatesector(p->posx,p->posy,&p->cursectnum);
+//            setpal(p);
+//
+//            i = headspritestat[1];
+//            while(i >= 0)
+//            {
+//                if(PN==CAMERA1) SP = 0;
+//                i = nextspritestat[i];
+//            }
+//        }
+//        else if(p->newowner >= 0)
+//            p->newowner = -1;
+//
+//        //we don't need to watch it for portals so comment them out
+//        //if( KB_KeyPressed(sc_Escape) )
+//        //    KB_ClearKeyDown(sc_Escape);
+//
+//        return;
+//
+//         //we don't need to watch it for portals so comment them out
+//         //if( (sync[snum].bits&(1<<29)) == 0 ) return;
+//         //else if(p->newowner >= 0)   //must be "else if" if lines above are ON
+//         if(p->newowner >= 0)
+//             {
+//                        i = -1;
+//                goto CLRCAMPORTAL;
+//             }
+//        break;
+//
+// ========= useless and disabled code finish =========================================
+
+                // security cameras enabled like buttons
                 case VIEWSCREEN:
                 case VIEWSCREEN2:
                     {
@@ -3167,6 +3321,7 @@ void checksectors(short snum)
         if( (sync[snum].bits&(1<<29)) == 0 ) return;
         else if(p->newowner >= 0) { i = -1; goto CLEARCAMERAS; }
 
+        // if you press use key on something and if nothing recognised duke says oowh, what's that
         if(neartagwall == -1 && neartagsector == -1 && neartagsprite == -1)
             if( klabs(hits(p->i)) < 512 )
         {
@@ -3218,6 +3373,3 @@ void checksectors(short snum)
         }
     }
 }
-
-
-
