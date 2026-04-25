@@ -782,8 +782,9 @@ void setupbackdrop(short sky)
 void prelevel(char g)
 {
     short i, nexti, j, startwall, endwall, lotaglist;
-    short lotags[65];
-
+    short lotags[65], snum;
+    struct player_struct *p;
+    p = &ps[snum];
 
     clearbufbyte(show2dsector, sizeof(show2dsector), 0L);
     clearbufbyte(show2dwall, sizeof(show2dwall), 0L);
@@ -791,6 +792,8 @@ void prelevel(char g)
 
     resetprestat(0, g);
     numclouds = 0;
+    // reset index of the last used portal to prevent ping-pong
+    ps[snum].lastprtl = -1;
 
     for (i = 0; i < numsectors; i++)
     {

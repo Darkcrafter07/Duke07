@@ -7,7 +7,7 @@ target = 386pc
 
 D3DLQ3.exe : game.obj actors.obj gamedef.obj global.obj menues.obj player.obj &
 			premap.obj sector.obj sounds.obj rts.obj cash386.obj eng386.obj &
-			alq3x.obj mm386ti.obj config.obj animlib.obj
+			alq3x.obj mm386ti.obj config.obj animlib.obj portals.obj
 		wlink $(all) @makelq3.lnk
 
 compileoptions = $(prod) $(debug) -imact
@@ -37,4 +37,5 @@ config.obj : config.c $(globaldependencies)
 	wcc386 config $(compileoptions)
 animlib.obj : animlib.c $(globaldependencies)
 	wcc386 animlib $(compileoptions)
-
+portals.obj : portals.c $(globaldependencies)
+	wcc386 portals $(compileoptions)

@@ -2399,80 +2399,33 @@ void movestandables(void)
 // for drawing portals like viewscreen actors
 void movestandablesportal0(void)
 {
-    short i, nexti, k_cam;
-    long dxp, dyp, distp, m_shift;
+    short i, nexti;
     spritetype *s;
 
-    i = headspritestat[128]; //movestandablesportal0 function ID
+    i = headspritestat[128]; // movestandablesportal0 function ID
     while(i >= 0)
     {
         nexti = nextspritestat[i];
-
         s = &sprite[i];
 
-        if( s->sectnum < 0 ) KILLIT(i);
+        if( s->sectnum < 0 ) { KILLIT(i); i = nexti; continue; }
 
+        // Update bpos for portal sprite itself
         hittype[i].bposx = s->x;
         hittype[i].bposy = s->y;
         hittype[i].bposz = s->z;
 
-        //render to texture section (security cameras - portals)
-        switch(s->picnum)
+        if(s->picnum == PORTAL0)
         {
-            case PORTAL0:
-                if(s->xrepeat == 0) KILLIT(i);
+            if(s->xrepeat == 0) { KILLIT(i); i = nexti; continue; }
 
-                // Just keep the prtl idx active
-                portalsprite0 = i;
-
-                // --- dedicated portal camera logic start ---
-                // Use cached camera index from T11 (temp_data[10])
-                k_cam = (short)hittype[i].temp_data[10];
-
-                if (k_cam >= 0 && k_cam < MAXSPRITES)
-                {
-                    // Initialize parallax anchors (T7, T8, T9) once
-                    if (hittype[k_cam].temp_data[6] == 0 && hittype[k_cam].temp_data[7] == 0)
-                    {
-                        hittype[k_cam].temp_data[6] = sprite[k_cam].x;
-                        hittype[k_cam].temp_data[7] = sprite[k_cam].y;
-                        hittype[k_cam].temp_data[8] = sprite[k_cam].z;
-                    }
-
-                    // Sync camera angle and tilt with player
-                    sprite[k_cam].ang = ps[myconnectindex].ang;
-                    sprite[k_cam].yvel = ps[myconnectindex].horiz;
-
-                    // Calculate player offset relative to portal center
-                    dxp = ps[myconnectindex].posx - s->x;
-                    dyp = ps[myconnectindex].posy - s->y;
-                    distp = klabs(dxp) + klabs(dyp);
-
-                    if (distp < 16384L)
-                    {
-                        m_shift = 8;
-                        if (distp < 4000) m_shift = 5;
-                        else if (distp < 8000) m_shift = 6;
-                        else if (distp < 12000) m_shift = 7;
-
-                        // Apply parallax shift relative to static anchors (T7, T8, T9)
-                        sprite[k_cam].x = hittype[k_cam].temp_data[6] + (dxp >> m_shift);
-                        sprite[k_cam].y = hittype[k_cam].temp_data[7] + (dyp >> m_shift);
-                        sprite[k_cam].z = hittype[k_cam].temp_data[8] + ((ps[myconnectindex].posz - s->z) >> 4);
-                        
-                        updatesector(sprite[k_cam].x, sprite[k_cam].y, &sprite[k_cam].sectnum);
-                    }
-                    else
-                    {
-                        // Reset to anchors if player is far away
-                        sprite[k_cam].x = hittype[k_cam].temp_data[6];
-                        sprite[k_cam].y = hittype[k_cam].temp_data[7];
-                        sprite[k_cam].z = hittype[k_cam].temp_data[8];
-                    }
-                }
-                // --- dedicated portal camera logic finish ---
-
-                goto BOLT;
+            // Keep portal sprite global index active for the renderer
+            portalsprite0 = i;
+            
+            // Note: All camera parallax and orientation logic 
+            // has been moved to portals.c (SE40_DrawPortal0)
+            // to ensure stability and correct freelook rendering.
+            goto BOLT;
         }
         BOLT:
         i = nexti;
@@ -2487,75 +2440,33 @@ void movestandablesportal0(void)
 // if( PN != PORTAL0 && PN != PORTAL1) // - 1st PORTAL0 gonna show PORTAL1 contents and so on
 void movestandablesportal1(void)
 {
-    short i, nexti, k_cam;
-    long dxp, dyp, distp, m_shift;
+    short i, nexti;
     spritetype *s;
 
-    i = headspritestat[129]; //movestandablesportal1 function ID
+    i = headspritestat[129]; // movestandablesportal1 function ID
     while(i >= 0)
     {
         nexti = nextspritestat[i];
-
         s = &sprite[i];
 
-        if( s->sectnum < 0 ) KILLIT(i);
+        if( s->sectnum < 0 ) { KILLIT(i); i = nexti; continue; }
 
+        // Update bpos for portal sprite itself
         hittype[i].bposx = s->x;
         hittype[i].bposy = s->y;
         hittype[i].bposz = s->z;
 
-        //render to texture section (security cameras - portals)
-        switch(s->picnum)
+        if(s->picnum == PORTAL1)
         {
-            case PORTAL1:
-                if(s->xrepeat == 0) KILLIT(i);
+            if(s->xrepeat == 0) { KILLIT(i); i = nexti; continue; }
 
-                // Just keep the prtl idx active
-                portalsprite1 = i;
-
-                // --- dedicated portal1 camera logic start ---
-                k_cam = (short)hittype[i].temp_data[10];
-
-                if (k_cam >= 0 && k_cam < MAXSPRITES)
-                {
-                    // Initialize parallax anchors (T7, T8, T9) once
-                    if (hittype[k_cam].temp_data[6] == 0 && hittype[k_cam].temp_data[7] == 0)
-                    {
-                        hittype[k_cam].temp_data[6] = sprite[k_cam].x;
-                        hittype[k_cam].temp_data[7] = sprite[k_cam].y;
-                        hittype[k_cam].temp_data[8] = sprite[k_cam].z;
-                    }
-
-                    sprite[k_cam].ang = ps[myconnectindex].ang;
-                    sprite[k_cam].yvel = ps[myconnectindex].horiz;
-
-                    dxp = ps[myconnectindex].posx - s->x;
-                    dyp = ps[myconnectindex].posy - s->y;
-                    distp = klabs(dxp) + klabs(dyp);
-
-                    if (distp < 16384L)
-                    {
-                        m_shift = 8;
-                        if (distp < 4000) m_shift = 5;
-                        else if (distp < 8000) m_shift = 6;
-                        else if (distp < 12000) m_shift = 7;
-
-                        sprite[k_cam].x = hittype[k_cam].temp_data[6] + (dxp >> m_shift);
-                        sprite[k_cam].y = hittype[k_cam].temp_data[7] + (dyp >> m_shift);
-                        sprite[k_cam].z = hittype[k_cam].temp_data[8] + ((ps[myconnectindex].posz - s->z) >> 4);
-                        
-                        updatesector(sprite[k_cam].x, sprite[k_cam].y, &sprite[k_cam].sectnum);
-                    }
-                    else
-                    {
-                        sprite[k_cam].x = hittype[k_cam].temp_data[6];
-                        sprite[k_cam].y = hittype[k_cam].temp_data[7];
-                        sprite[k_cam].z = hittype[k_cam].temp_data[8];
-                    }
-                }
-                // --- dedicated portal1 camera logic finish ---
-
-                goto BOLT;
+            // Keep portal sprite global index active for the renderer
+            portalsprite1 = i;
+            
+            // Note: All camera parallax and orientation logic 
+            // has been moved to portals.c (SE40_DrawPortal1)
+            // to ensure stability and correct freelook rendering.
+            goto BOLT;
         }
         BOLT:
         i = nexti;

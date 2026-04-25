@@ -5,7 +5,7 @@ prod = /4r /s /otexan
 
 Duke3d.exe : game.obj actors.obj gamedef.obj global.obj menues.obj player.obj &
 			premap.obj sector.obj sounds.obj rts.obj cache1d.obj engine.obj &
-			a.obj mmulti.obj config.obj animlib.obj
+			a.obj mmulti.obj config.obj animlib.obj portals.obj
 		wlink $(all) @makefile.lnk
 
 compileoptions = $(prod) $(debug) -imact
@@ -35,4 +35,5 @@ config.obj : config.c $(globaldependencies)
 	wcc386 config $(compileoptions)
 animlib.obj : animlib.c $(globaldependencies)
 	wcc386 animlib $(compileoptions)
-
+portals.obj : portals.c $(globaldependencies)
+	wcc386 portals $(compileoptions)

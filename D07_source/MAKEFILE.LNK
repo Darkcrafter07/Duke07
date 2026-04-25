@@ -4,5 +4,5 @@ option stack=100k
 option u
 name Duke3d
 file game,actors,gamedef,global,menues,player,premap,sector,sounds,rts,config
-file engine,cache1d,mmulti,a,animlib
+file engine,cache1d,mmulti,a,animlib,portals
 library audio_wf.lib,mact\mact386.lib,butwcd4.lib

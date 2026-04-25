@@ -2885,75 +2885,100 @@ void cheatkeys(short snum)
 
 void checksectors(short snum)
 {
-    long i = -1,oldz;
-    long dx, dy, dzinit, dz;
+    // Original Duke3D variables (must stay at the top)
+    long i = -1, oldz;
+    short j, hitscanwall;
+    
+    // Portal-specific variables with "prtl" suffix
+    long dxprtl, dyprtl, dzinitprtl, dzprtl;
+    long dynrangexyprtl, dynrangezprtl;
     struct player_struct *p;
-    short j,hitscanwall;
-    short spriteindexportal, camindexportal, prtlteleportdest = -1;
+    short jprtl; 
+    short spriteindexprtl, camindexprtl, teleportdestprtl;
 
     p = &ps[snum];
 
-
-    //T11 (temp_data[10]):camera indexes (camindexportal).
-    //T12 (temp_data[11]):activation stats and portal-camera spin counters.
-    spriteindexportal = headspritesect[p->cursectnum];
-    while(spriteindexportal >= 0)
+    // T11 (temp_data): camera indexes (camindexportal).
+    // T12 (temp_data): activation stats and portal-camera spin counters.
+    spriteindexprtl = headspritesect[p->cursectnum];
+    while(spriteindexprtl >= 0)
     {
-        if(sprite[spriteindexportal].picnum == PORTAL0 || sprite[spriteindexportal].picnum == PORTAL1)
+        if(sprite[spriteindexprtl].picnum == PORTAL0 || sprite[spriteindexprtl].picnum == PORTAL1)
         {
-            // 1. calc 3D dist to a sprite center
-            dx = klabs(p->posx - sprite[spriteindexportal].x);
-            dy = klabs(p->posy - sprite[spriteindexportal].y);
-            // shift Z by 8 bits as Build scales it 256 times larger?
-            dzinit = (p->posz - sprite[spriteindexportal].z) >> 8;
-            dz = klabs(dzinit);
+            // Initial distance calculations
+            dxprtl = klabs(p->posx - sprite[spriteindexprtl].x);
+            dyprtl = klabs(p->posy - sprite[spriteindexprtl].y);
+            dzinitprtl = (p->posz - sprite[spriteindexprtl].z) >> 8;
+            dzprtl = klabs(dzinitprtl);
 
-            // 768 and 72 — proximity ranges
-            if ( ((dx+dy)<768)&&(dz<72) )
+            // --- COMPLETE SAFE ZONE (XY + Z) ---
+            // Prevents being sucked back into the exit portal immediately
+            if (p->lastprtl == spriteindexprtl)
             {
-                // 2. get portal-cam indexes (CAMERA1) from T11 (temp_data[10])
-                camindexportal = hittype[spriteindexportal].temp_data[10];
-
-                // if link is empty or bendup, find cam by tags (hitag -> lotag)
-                if (camindexportal < 0 || sprite[camindexportal].picnum != CAMERA1)
+                // If within a larger x of detection range on all axes, stay locked
+                if ((dxprtl + dyprtl) < 1200 && dzprtl < 128) 
                 {
-                    for(j=0; j<MAXSPRITES; j++)
+                    goto NEXTPRTL; 
+                }
+                else
+                {
+                    p->lastprtl = -1; // Reset lock when player moves away
+                }
+            }
+
+            // 1. Calculate dynamic proximity based on sprite repeats
+            dynrangexyprtl = (1024 * sprite[spriteindexprtl].xrepeat) >> 6;
+            dynrangezprtl = (128L * sprite[spriteindexprtl].yrepeat) >> 6;
+
+            // Final proximity check using dynamic ranges
+            if ( ((dxprtl + dyprtl) < dynrangexyprtl) && (dzprtl < dynrangezprtl) )
+            {
+                // 2. Get portal-cam indexes (CAMERA1) from T11 (index 10)
+                camindexprtl = (short)hittype[spriteindexprtl].temp_data[10]; 
+                
+                if (camindexprtl < 0 || sprite[camindexprtl].picnum != CAMERA1)
+                {
+                    for(jprtl=0; jprtl<MAXSPRITES; jprtl++)
                     {
-                        if(sprite[j].picnum == CAMERA1 && sprite[j].lotag == sprite[spriteindexportal].hitag)
+                        if(sprite[jprtl].picnum == CAMERA1 && sprite[jprtl].lotag == sprite[spriteindexprtl].hitag)
                         {
-                            hittype[spriteindexportal].temp_data[10] = j;
-                            camindexportal = j;
+                            // Add index [10]
+                            hittype[spriteindexprtl].temp_data[10] = (long)jprtl; 
+                            camindexprtl = jprtl;
                             break;
                         }
                     }
                 }
 
-                // 3. silent teleportation
-                if (camindexportal >= 0 && camindexportal < MAXSPRITES)
+                // 3. Silent teleportation logic
+                if (camindexprtl >= 0 && camindexprtl < MAXSPRITES)
                 {
-                    // search PRTLTELEPDEST, linked with this prtl (hitag -> lotag)
-                    for(j=0; j<MAXSPRITES; j++)
+                    teleportdestprtl = -1;
+                    for(jprtl=0; jprtl<MAXSPRITES; jprtl++)
                     {
-                        if(sprite[j].picnum == PRTLTELEPDEST && sprite[j].lotag == sprite[spriteindexportal].hitag)
+                        if(sprite[jprtl].picnum == PRTLTELEPDEST && sprite[jprtl].lotag == sprite[spriteindexprtl].hitag)
                         {
-                            prtlteleportdest = j;
+                            teleportdestprtl = jprtl;
                             break;
                         }
                     }
 
-                    if (prtlteleportdest >= 0) // if prtl telep dest found - jump there
+                    if (teleportdestprtl >= 0) // Destination found
                     {
-                        p->posx = sprite[prtlteleportdest].x;
-                        p->posy = sprite[prtlteleportdest].y;
-                        p->posz = sprite[prtlteleportdest].z;
-                        p->ang  = sprite[prtlteleportdest].ang;
+                        // Set the LOCK on the destination portal
+                        p->lastprtl = teleportdestprtl; 
+
+                        p->posx = sprite[teleportdestprtl].x;
+                        p->posy = sprite[teleportdestprtl].y;
+                        p->posz = sprite[teleportdestprtl].z;
+                        p->ang  = sprite[teleportdestprtl].ang;
                     }
-                    else // otherwise, fallback to prt cam
+                    else // Fallback to camera
                     {
-                        p->posx = sprite[camindexportal].x;
-                        p->posy = sprite[camindexportal].y;
-                        p->posz = sprite[camindexportal].z;
-                        p->ang  = sprite[camindexportal].ang;
+                        p->posx = sprite[camindexprtl].x;
+                        p->posy = sprite[camindexprtl].y;
+                        p->posz = sprite[camindexprtl].z;
+                        p->ang  = sprite[camindexprtl].ang;
                     }
                 
                     updatesector(p->posx, p->posy, &p->cursectnum);
@@ -2961,7 +2986,8 @@ void checksectors(short snum)
                 }
             }
         }
-        spriteindexportal = nextspritesect[spriteindexportal];
+        NEXTPRTL:
+        spriteindexprtl = nextspritesect[spriteindexprtl];
     }
 
 

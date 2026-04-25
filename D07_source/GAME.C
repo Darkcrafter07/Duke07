@@ -2604,12 +2604,10 @@ void drawbackground(void)
 // If standing in sector with SE45
 // then draw viewing to SE41.
 
-#define FOFTILE 13
-#define FOFTILEX 32
-#define FOFTILEY 32
 long tempsectorz[MAXSECTORS];
 long tempsectorpicnum[MAXSECTORS];
 // short tempcursectnum;
+short FOFTILE = 13, FOFTILEX = 32, FOFTILEY = 32;
 
 SE40_Draw(int spnum, long x, long y, long z, short a, short h, long smoothratio)
 {
@@ -2744,7 +2742,7 @@ void se40code(long x, long y, long z, long a, long h, long smoothratio)
     }
 }
 
-#include "portals.c"
+//#include "portals.c"
 
 static long oyrepeat=-1;
 extern long setviewcnt, bakxsiz[4], bakysiz[4];
@@ -3818,7 +3816,7 @@ short spawn( short j, short pn )
                 sp->owner = i;
                 sp->lotag = 1;
                 sp->extra = 1;
-                // call movestandablesportal0 function (1st)
+                // call movestandablesportal function (1st)
                 // and movetransportsportal (2nd) function
                 // in an order set in "startspriteportal" function
                 changespritestat(i, 128);

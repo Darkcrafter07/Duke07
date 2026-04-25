@@ -1,6 +1,3 @@
-// portals.c
-// to be included in game.c
-
 //-------------------------------------------------------------------------
 /*
 Copyright (C) 1996, 2003 - 3D Realms Entertainment
@@ -20,7 +17,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Softw4:53 20.06.2025are
+along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 Original Source: 1996 - Todd Replogle
@@ -28,21 +25,114 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 */
 //-------------------------------------------------------------------------
 
+#include "duke3d.h"
+
+extern long tempsectorz[MAXSECTORS];
+extern long tempsectorpicnum[MAXSECTORS];
+extern short FOFTILE, FOFTILEX, FOFTILEY;
+
+// ========================================================================
+// DESIGN PRINCIPLES OF UNIVERSAL CAMERA XY MOVEMENT INSIDE PORTALS:
+// DO: Always calculate movement in LOCAL coordinate space of the sprite.
+// DO: Use 'angdiff' for relative view synchronization.
+// DON'T: Use global dx/dy for parallax (it breaks on non-parallel walls).
+// DON'T: Hardcode Picnums for axis inversion (use local rotation instead).
+// DRAWROOMSPORTAL only moves X and Y of the camera, all the rest happen
+//           inside SE40_DrawPortal#x because it's the only way it works.
+// ========================================================================
+
+void drawroomsportal(long ox, long oy, long p_z, short p_ang, long ohoriz,
+                   short osect, spritetype *src_prtl, spritetype *dst_cam)
+{
+    long dx, dy, ratio, distp, angdiff, fdx, fdy;
+    long local_x, local_y, tx, ty, final_x, final_y;
+    long maxparaldist, slowed_horiz;
+    short slowed_angle, final_sect;
+
+    // 1. Calculate player vector relative to the entrance portal
+    dx = ox - src_prtl->x; dy = oy - src_prtl->y;
+    
+    // DO: Rotate the vector into the portal's LOCAL system.
+    // This "Aligns the Grid to Wall", making the math independent of map rotation.
+    // local_x becomes pure strafe, local_y becomes pure depth.
+    rotatepoint(0L, 0L, dx, dy, (short)(-(src_prtl->ang)), &local_x, &local_y);
+    
+    // Absolute distance for the Ratio gradient (must be positive)
+    distp = klabs(local_y);
+    maxparaldist = 1024;
+
+    // 2. Parallax Scaling (the closer to portal the faster is XY parallax)
+    if (distp < 384) ratio = 9000;
+    else if (distp < 8092) ratio = 9000 - scale(8000, distp - 384, 8092);
+    else ratio = 2000;
+
+    if (ratio > 0)
+    {
+        // DO: Apply Negative scaling for the "Mirror/Window" effect.
+        // DON'T: Use positive local_y, or the image will move AWAY when you approach.
+        // Mirroring local_x (-) makes strafing natural (view shifts opposite to move).
+        // Mirroring local_y (-) pushes the camera BACK as you approach (creating Zoom).
+        fdx = -local_x; fdy = -local_y;
+    
+        // 3. Translation to Exit Point
+        // DO: Maintain a 180-degree flip (+1024) to face OUT of the exit portal.
+        angdiff = (dst_cam->ang - src_prtl->ang + 1024) & 2047;
+    
+        // DO: Project local fdx/fdy onto the DESTINATION portal's angle.
+        // This handles the "10-degree wall" compensation automatically.
+        rotatepoint(0L, 0L, fdx, fdy, (short)(dst_cam->ang), &tx, &ty);
+            
+        final_x = dst_cam->x + tx; final_y = dst_cam->y + ty;
+    
+        // 4. Collision Safety
+        // DON'T: Let the camera leave the sector (prevents HOM/Black screen glitches).
+        if (klabs(tx) + klabs(ty) > maxparaldist)
+        {
+            final_x = dst_cam->x + scale(tx, maxparaldist, klabs(tx) + klabs(ty));
+            final_y = dst_cam->y + scale(ty, maxparaldist, klabs(tx) + klabs(ty));
+        }
+    }
+    else
+    {
+        // Safe fallback for far distances
+        final_x = dst_cam->x; final_y = dst_cam->y;
+        angdiff = (dst_cam->ang - src_prtl->ang + 1024) & 2047;
+    }
+    
+    // 5. Build Engine Synchronization
+    // DO: Call updatesector before drawrooms to prevent rendering the "Void".
+    final_sect = dst_cam->sectnum;
+    updatesector(final_x, final_y, &final_sect);
+    if (final_sect < 0) final_sect = dst_cam->sectnum;
+
+    // 6. Convert angdiff to values from -1024 to 1024
+    if (angdiff > 1024) angdiff -= 2048;
+
+    slowed_angle = (short)(dst_cam->ang + (angdiff >> 4)); //slower horizontal look
+    slowed_horiz = 100 + ((ohoriz - 100) >> 3);            //slower vertical look
+    
+    // DO: Apply angdiff to p_ang for proper head rotation synchronization.
+    // DON'T: Modify p_ang with hardcoded constants like 512 or 1536 here.
+    //drawrooms(final_x, final_y, p_z, (short)((p_ang + angdiff) & 2047), ohoriz, final_sect);
+    drawrooms(final_x, final_y, p_z, (short)(slowed_angle & 2047), slowed_horiz, final_sect);
+}
+
 // =========================== Draw PORTAL0 - START  =======================================
+
 void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long smoothratio)
 {
+    // ALL declarations MUST be at the top for Watcom C 11.0
     long i=0, j=0, k=0;
-    long offx, offy, render_w, render_h;
+    long offx, offy, dxp, dyp, render_w, render_h;
     long floor1=0, floor2=0, ok=0, fofmode = 0, backup_camsprite;
+    long nz, ceilz_at_cam, floorz_at_cam, angdiffprtl;
+    long pushx, pushy, pushz;
     short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
     unsigned char old_xr, old_yr;
 
     old_xr = sprite[spnum].xrepeat;
     old_yr = sprite[spnum].yrepeat;
     old_cstat = sprite[spnum].cstat;
-
-    //T11 (temp_data[10]):camera indexes (camindexportal).
-    //T12 (temp_data[11]):activation stats and portal-camera spin counters.
 
     if (sprite[spnum].picnum == PORTAL0)
     {
@@ -57,9 +147,7 @@ void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long 
         sprite[spnum].yrepeat = (new_yr > 255) ? 255 : (unsigned char)new_yr;
 
         // 3. HARD-BIND to CAMERA1 (Portal Camera)
-        // Use new "tempy" T11 (index 10)
         k = hittype[spnum].temp_data[10]; 
-
         if (k < 0 || k >= MAXSPRITES || sprite[k].picnum != CAMERA1)
         {
             k = -1;
@@ -68,7 +156,7 @@ void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long 
                 if (sprite[i].picnum == CAMERA1 && sprite[i].lotag == sprite[spnum].hitag)
                 {
                     k = i;
-                    hittype[spnum].temp_data[10] = k; // remember in T11
+                    hittype[spnum].temp_data[10] = k;
                     break;
                 }
             }
@@ -77,11 +165,35 @@ void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long 
         // If portal camera found - render
         if (k >= 0 && k < MAXSPRITES)
         {
+            // Safety: ensure camera sector is valid before rendering to prevent flicker
+            if (sprite[k].sectnum < 0) 
+                updatesector(sprite[k].x, sprite[k].y, &sprite[k].sectnum);
+
             // hide PORTAL1 sprite tile itself inside PORTAL0 contents - start
             old_cstat = sprite[spnum].cstat;
             sprite[spnum].cstat |= 32768;
             if (portalsprite1 >= 0) sprite[portalsprite1].cstat |= 32768;
             // hide PORTAL1 sprite tile itself inside PORTAL0 contents - finish
+
+            // --- Sync camera look with player ---
+            sprite[k].ang = ps[screenpeek].ang;
+
+            // --- ADVANCED Z-TRACKING & CLAMPING START ---
+            // nz: desired height based on player movement
+            nz = hittype[k].temp_data[8] + ((ps[screenpeek].posz - sprite[spnum].z) >> 1);
+            
+            // Slope-aware Z-clamping for the camera sector
+            getzsofslope(sprite[k].sectnum, sprite[k].x, sprite[k].y, &ceilz_at_cam, &floorz_at_cam);
+            
+            // Safe Z-bounds: prevents near-plane glitches on floor/ceiling
+            if (nz < (ceilz_at_cam + 8L)) nz = ceilz_at_cam + 8L;
+            if (nz > (floorz_at_cam - 8L)) nz = floorz_at_cam - 8L;
+            
+            // Emergency centering for low-profile sectors
+            if ((floorz_at_cam - ceilz_at_cam) < 16L) nz = (floorz_at_cam + ceilz_at_cam) >> 1;
+            
+            sprite[k].z = nz;
+            // --- ADVANCED Z-TRACKING & CLAMPING END ---
 
             // prevent conflict with original security monitors (VIEWSCREEN)
             backup_camsprite = camsprite;
@@ -89,15 +201,20 @@ void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long 
 
             setviewtotile(PORTAL0, target_w, target_h);
             
-            // Render the world in PORTAL0 tile
-            drawrooms(sprite[k].x, sprite[k].y, sprite[k].z, sprite[k].ang, 100L, sprite[k].sectnum);
+            // --- PORTAL RENDER ---
+            drawroomsportal(ps[screenpeek].posx, ps[screenpeek].posy, sprite[k].z, 
+                            sprite[k].ang, (long)h, sprite[spnum].sectnum, 
+                            &sprite[spnum], &sprite[k]);
+
             animatesprites(sprite[k].x, sprite[k].y, sprite[k].ang, smoothratio);
             drawmasks();
-            squarerotatetile(PORTAL0); // rotate the tile contents 90 degrees right 
-
-            setviewback(); // prevents screen from shreding into horizontal scanlines
             
-            // Restore regular camsprite immediately
+            // rotate the tile contents 90 degrees right every frame it's drawn
+            squarerotatetile(PORTAL0); 
+
+            setviewback(); 
+            
+            // Restore regular camsprite
             camsprite = backup_camsprite;
 
             // hide PORTAL1 sprite tile itself inside PORTAL0 contents - start
@@ -181,7 +298,10 @@ void SE40_DrawPortal0(int spnum, long x, long y, long z, short a, short h, long 
 
     // Draw FOF in the portal (if needed)
     setviewtotile(PORTAL0, xdim, ydim);
-    drawrooms(offx+sprite[i].x,offy+sprite[i].y,z,a,h,sprite[i].sectnum);
+    //drawrooms(offx+sprite[i].x,offy+sprite[i].y,z,a,h,sprite[i].sectnum);
+    drawroomsportal(ps[screenpeek].posx, ps[screenpeek].posy, sprite[k].z, 
+                    sprite[k].ang, (long)h, sprite[spnum].sectnum, 
+                    &sprite[spnum], &sprite[k]);
     animatesprites(x,y,a,smoothratio);
     drawmasks();
     squarerotatetile(PORTAL0); // rotate the tile contents 90 degrees right
@@ -209,7 +329,7 @@ void se40codeportal0(long x, long y, long z, long a, long h, long smoothratio)
 {
     long i, l, angdiff;
 
-    if (totalclock & 12) return; // Throttle-hop-optimization: update portal only each 12th frame.
+    if (totalclock & 6) return; // Throttle-hop-optimization: update portal only each 6th frame.
 
     i = headspritestat[128];
     while (i >= 0)
@@ -264,18 +384,18 @@ void se40codeportal0(long x, long y, long z, long a, long h, long smoothratio)
 // =========================== Draw PORTAL1 - START  =======================================
 void SE40_DrawPortal1(int spnum, long x, long y, long z, short a, short h, long smoothratio)
 {
+    // ALL declarations MUST be at the top for Watcom C 11.0
     long i=0, j=0, k=0;
-    long offx, offy, render_w, render_h;
+    long offx, offy, dxp, dyp, render_w, render_h;
     long floor1=0, floor2=0, ok=0, fofmode = 0, backup_camsprite;
+    long nz, ceilz_at_cam, floorz_at_cam, angdiffprtl;
+    long pushx, pushy, pushz;
     short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
     unsigned char old_xr, old_yr;
 
     old_xr = sprite[spnum].xrepeat;
     old_yr = sprite[spnum].yrepeat;
     old_cstat = sprite[spnum].cstat;
-
-    //T11 (temp_data[10]):camera indexes (camindexportal).
-    //T12 (temp_data[11]):activation stats and portal-camera spin counters.
 
     if (sprite[spnum].picnum == PORTAL1)
     {
@@ -290,9 +410,7 @@ void SE40_DrawPortal1(int spnum, long x, long y, long z, short a, short h, long 
         sprite[spnum].yrepeat = (new_yr > 255) ? 255 : (unsigned char)new_yr;
 
         // 3. HARD-BIND to CAMERA1 (Portal Camera)
-        // Use new "tempy" T11 (index 10)
         k = hittype[spnum].temp_data[10]; 
-
         if (k < 0 || k >= MAXSPRITES || sprite[k].picnum != CAMERA1)
         {
             k = -1;
@@ -301,7 +419,7 @@ void SE40_DrawPortal1(int spnum, long x, long y, long z, short a, short h, long 
                 if (sprite[i].picnum == CAMERA1 && sprite[i].lotag == sprite[spnum].hitag)
                 {
                     k = i;
-                    hittype[spnum].temp_data[10] = k; // remember in T11
+                    hittype[spnum].temp_data[10] = k;
                     break;
                 }
             }
@@ -310,27 +428,56 @@ void SE40_DrawPortal1(int spnum, long x, long y, long z, short a, short h, long 
         // If portal camera found - render
         if (k >= 0 && k < MAXSPRITES)
         {
+            // Safety: ensure camera sector is valid before rendering to prevent flicker
+            if (sprite[k].sectnum < 0) 
+                updatesector(sprite[k].x, sprite[k].y, &sprite[k].sectnum);
+
             // hide PORTAL0 sprite tile itself inside PORTAL1 contents - start
             old_cstat = sprite[spnum].cstat;
             sprite[spnum].cstat |= 32768;
             if (portalsprite0 >= 0) sprite[portalsprite0].cstat |= 32768;
             // hide PORTAL0 sprite tile itself inside PORTAL1 contents - finish
 
+            // --- Sync camera look with player ---
+            sprite[k].ang = ps[screenpeek].ang;
+
+            // --- ADVANCED Z-TRACKING & CLAMPING START ---
+            // nz: desired height based on player movement
+            nz = hittype[k].temp_data[8] + ((ps[screenpeek].posz - sprite[spnum].z) >> 1);
+            
+            // Slope-aware Z-clamping for the camera sector
+            getzsofslope(sprite[k].sectnum, sprite[k].x, sprite[k].y, &ceilz_at_cam, &floorz_at_cam);
+            
+            // Safe Z-bounds: prevents near-plane glitches on floor/ceiling
+            if (nz < (ceilz_at_cam + 8L)) nz = ceilz_at_cam + 8L;
+            if (nz > (floorz_at_cam - 8L)) nz = floorz_at_cam - 8L;
+            
+            // Emergency centering for low-profile sectors
+            if ((floorz_at_cam - ceilz_at_cam) < 8L) nz = (floorz_at_cam + ceilz_at_cam) >> 1;
+            
+            sprite[k].z = nz;
+            // --- ADVANCED Z-TRACKING & CLAMPING END ---
+
             // prevent conflict with original security monitors (VIEWSCREEN)
             backup_camsprite = camsprite;
-            camsprite = -1;
+            camsprite = -1; 
 
             setviewtotile(PORTAL1, target_w, target_h);
             
-            // Render the world in PORTAL1 tile
-            drawrooms(sprite[k].x, sprite[k].y, sprite[k].z, sprite[k].ang, 100L, sprite[k].sectnum);
+            // --- PORTAL RENDER ---
+            drawroomsportal(ps[screenpeek].posx, ps[screenpeek].posy, sprite[k].z, 
+                            sprite[k].ang, (long)h, sprite[spnum].sectnum, 
+                            &sprite[spnum], &sprite[k]);
+
             animatesprites(sprite[k].x, sprite[k].y, sprite[k].ang, smoothratio);
             drawmasks();
-            squarerotatetile(PORTAL1); // rotate the tile contents 90 degrees right 
-
-            setviewback(); // prevents screen from shreding into horizontal scanlines
             
-            // Restore regular camsprite immediately
+            // rotate the tile contents 90 degrees right every frame it's drawn
+            squarerotatetile(PORTAL1); 
+
+            setviewback();
+            
+            // Restore regular camsprite
             camsprite = backup_camsprite;
 
             // hide PORTAL0 sprite tile itself inside PORTAL1 contents - start
@@ -414,7 +561,10 @@ void SE40_DrawPortal1(int spnum, long x, long y, long z, short a, short h, long 
 
     // Draw FOF in the portal (if needed)
     setviewtotile(PORTAL1, xdim, ydim);
-    drawrooms(offx+sprite[i].x,offy+sprite[i].y,z,a,h,sprite[i].sectnum);
+    //drawrooms(offx+sprite[i].x,offy+sprite[i].y,z,a,h,sprite[i].sectnum);
+    drawroomsportal(ps[screenpeek].posx, ps[screenpeek].posy, sprite[k].z, 
+                    sprite[k].ang, (long)h, sprite[spnum].sectnum, 
+                    &sprite[spnum], &sprite[k]);
     animatesprites(x,y,a,smoothratio);
     drawmasks();
     squarerotatetile(PORTAL1); // rotate the tile contents 90 degrees right
@@ -442,7 +592,7 @@ void se40codeportal1(long x, long y, long z, long a, long h, long smoothratio)
 {
     long i, l, angdiff;
 
-    if (totalclock & 12) return; // Throttle-hop-optimization: update portal only each 12th frame.
+    if (totalclock & 6) return; // Throttle-hop-optimization: update portal only each 6th frame.
 
     i = headspritestat[129];
     while (i >= 0)

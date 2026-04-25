@@ -4863,7 +4863,9 @@ drawsprite (long snum)
 	char swapped, daclip;
 
 	// portal variables start
-	long n, ang, n_angle, u_scale;
+	short sprite_ang;
+	long n, ang, n_angle, u_scale, angle_offset, u_coord;
+	long screen_width, x_left, x_right, w_width, u_step, cos_angle;
 	// portal variables finish
 
 	tspr = tspriteptr[snum];
@@ -5315,62 +5317,50 @@ drawsprite (long snum)
 		// ======= parallax texturing on wall aligned sprites for portals start =====================
 		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
 		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
-		{
-		    // --- horizontal (U) ---
-		    // to make texture thinner by width increase n_angle.
+	        {
+		    // set overall image width
 		    n_angle = mulscale15(xdimenrecip, viewingrange); // too wide yet
-		    n_angle = n_angle + (n_angle >> 4);
-		    
-		    // here you can still try to make it thiner but it's not recommended
-		    u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
+		    n_angle = n_angle + (n_angle >> 1); // make it narrower
+		    n_angle = n_angle + (n_angle >> 2); // make it narrower again
+		    n_angle = n_angle + (n_angle >> 4); // make it even narrower
+		    sprite_ang = tspr->ang;
 		
-		    // --- correct x-axis mapping start
-		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    {
-		        // adding multiplier for the width correction
-		        lwall[x] = ((mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
-		        swall[x] = mulscale16(xdimscale, viewingrange);
-		    }
-		    // --- correct x-axis mapping finish
-
-		    // --- the x-axis to follow your step and view start
-		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    //{
-		    //    // change sign before mulscale23, it was (x-half), now (half-x). 
-		    //    lwall[x] = ((mulscale23(halfxdimen - x, n_angle) + globalang) & 2047) * 128 >> 11;
-		    //    swall[x] = mulscale16(xdimscale, viewingrange);
-		    //}
-		    // --- the x-axis to follow your step and view finish
-
-		    // the x-axis to only follow your view start
-		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    //{
-		    //    // adding multiplier for the width correction
-		    //    lwall[x] = ((-mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
-		    //    swall[x] = mulscale16(xdimscale, viewingrange);
-		    //}
-		    // the x-axis to only follow your view start
-		
-		    // --- vertical (V) ---
-		    // if squished — then globalyscale is too small. 
-		    // increase it. It's 512 in parascan (8<<6), make it depend on ydim.
-		    
+	
+		    // --- motion animated portal tiles that must be projected still start ----
+	          //    --- horizontal withOUT parallax srolling (U) ---
+	          for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+	          {
+	              lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
+	                         (globalang - sprite_ang)) & 2047) * 128 >> 11;
+	              swall[x] = mulscale16(xdimscale, viewingrange);
+	          }
+	          //    ---  vertical (V) attempt to minimize vertical scrolling    ----
 		    globalshiftval = 32 - (picsiz[tilenum] >> 4);
-		
-		    // main fix for the height:
-		    // pick the value as such, as for the sprite height corresponded width.
-		    // 6L is good, lesser values gonna make it bigger
-		    globalyscale = (6L << (globalshiftval - 20)); 
-		
+		    globalyscale = (7L << (globalshiftval - 20));       // height scale 
 		    if (globalyscale <= 0) globalyscale = 1;
-		
-		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
-		    globalzd += (globalhoriz * globalyscale << 3);
-		
-		    globalpicnum = tilenum;
-		    globalshade = tspr->shade;
-		    globalpal = tspr->pal;
-		    globvis = 0;
+		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval);
+		    globalzd += ((100 - tspr->yoffset) * globalyscale << 3);
+		    // --- motion animated portal tiles that must be projected still finish ----
+	
+		    // ---- for static tiles where tile contents don't matter start ----
+		    // u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
+		    // --- horizontal with parallax scrolling (U) ---
+		    // for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    // {
+		    //     lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
+		    //                globalang) & 2047) * 128 >> 11;
+		    //     swall[x] = mulscale16(xdimscale, viewingrange);
+		    // }
+		    // globalshiftval = 32 - (picsiz[tilenum] >> 4);
+		    // globalyscale = (7L << (globalshiftval - 20));       // height scale 
+		    // if (globalyscale <= 0) globalyscale = 1;
+		    // globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
+		    // globalzd += (globalhoriz * globalyscale << 3);
+		    // ---- for static tiles where tile contents don't matter finish ----
+	
+	
+		    globalpicnum = tilenum; globalshade = tspr->shade;
+		    globalpal = tspr->pal; globvis = 0;
 		}
 		// ======= parallax texturing on wall aligned sprites for portals finish =====================
 
@@ -5834,7 +5824,9 @@ drawsprite_LQ2X (long snum)
 	long detail_counter; // Counter for skipping fields
 
 	// portal variables start
-	long n, ang, n_angle, u_scale;
+	short sprite_ang;
+	long n, ang, n_angle, u_scale, angle_offset, u_coord;
+	long screen_width, x_left, x_right, w_width, u_step, cos_angle;
 	// portal variables finish
 
 	tspr = tspriteptr[snum];
@@ -6306,62 +6298,50 @@ drawsprite_LQ2X (long snum)
 		// ======= parallax texturing on wall aligned sprites for portals start =====================
 		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
 		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
-		{
-		    // --- horizontal (U) ---
-		    // to make texture thinner by width increase n_angle.
+	        {
+		    // set overall image width
 		    n_angle = mulscale15(xdimenrecip, viewingrange); // too wide yet
-		    n_angle = n_angle + (n_angle >> 4);
-		    
-		    // here you can still try to make it thiner but it's not recommended
-		    u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
+		    n_angle = n_angle + (n_angle >> 1); // make it narrower
+		    n_angle = n_angle + (n_angle >> 2); // make it narrower again
+		    n_angle = n_angle + (n_angle >> 4); // make it even narrower
+		    sprite_ang = tspr->ang;
 		
-		    // --- correct x-axis mapping start
-		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    {
-		        // adding multiplier for the width correction
-		        lwall[x] = ((mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
-		        swall[x] = mulscale16(xdimscale, viewingrange);
-		    }
-		    // --- correct x-axis mapping finish
-
-		    // --- the x-axis to follow your step and view start
-		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    //{
-		    //    // change sign before mulscale23, it was (x-half), now (half-x). 
-		    //    lwall[x] = ((mulscale23(halfxdimen - x, n_angle) + globalang) & 2047) * 128 >> 11;
-		    //    swall[x] = mulscale16(xdimscale, viewingrange);
-		    //}
-		    // --- the x-axis to follow your step and view finish
-
-		    // the x-axis to only follow your view start
-		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    //{
-		    //    // adding multiplier for the width correction
-		    //    lwall[x] = ((-mulscale23(x - halfxdimen, n_angle) + globalang) & 2047) * 128 >> 11;
-		    //    swall[x] = mulscale16(xdimscale, viewingrange);
-		    //}
-		    // the x-axis to only follow your view start
-		
-		    // --- vertical (V) ---
-		    // if squished — then globalyscale is too small. 
-		    // increase it. It's 512 in parascan (8<<6), make it depend on ydim.
-		    
+	
+		    // --- motion animated portal tiles that must be projected still start ----
+	          //    --- horizontal withOUT parallax srolling (U) ---
+	          for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+	          {
+	              lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
+	                         (globalang - sprite_ang)) & 2047) * 128 >> 11;
+	              swall[x] = mulscale16(xdimscale, viewingrange);
+	          }
+	          //    ---  vertical (V) attempt to minimize vertical scrolling    ----
 		    globalshiftval = 32 - (picsiz[tilenum] >> 4);
-		
-		    // main fix for the height:
-		    // pick the value as such, as for the sprite height corresponded width.
-		    // 6L is good, lesser values gonna make it bigger
-		    globalyscale = (6L << (globalshiftval - 20)); 
-		
+		    globalyscale = (7L << (globalshiftval - 20));       // height scale 
 		    if (globalyscale <= 0) globalyscale = 1;
-		
-		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
-		    globalzd += (globalhoriz * globalyscale << 3);
-		
-		    globalpicnum = tilenum;
-		    globalshade = tspr->shade;
-		    globalpal = tspr->pal;
-		    globvis = 0;
+		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval);
+		    globalzd += ((100 - tspr->yoffset) * globalyscale << 3);
+		    // --- motion animated portal tiles that must be projected still finish ----
+	
+		    // ---- for static tiles where tile contents don't matter start ----
+		    // u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
+		    // --- horizontal with parallax scrolling (U) ---
+		    // for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    // {
+		    //     lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
+		    //                globalang) & 2047) * 128 >> 11;
+		    //     swall[x] = mulscale16(xdimscale, viewingrange);
+		    // }
+		    // globalshiftval = 32 - (picsiz[tilenum] >> 4);
+		    // globalyscale = (7L << (globalshiftval - 20));       // height scale 
+		    // if (globalyscale <= 0) globalyscale = 1;
+		    // globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
+		    // globalzd += (globalhoriz * globalyscale << 3);
+		    // ---- for static tiles where tile contents don't matter finish ----
+	
+	
+		    globalpicnum = tilenum; globalshade = tspr->shade;
+		    globalpal = tspr->pal; globvis = 0;
 		}
 		// ======= parallax texturing on wall aligned sprites for portals finish =====================
 
