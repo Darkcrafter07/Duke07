@@ -52,7 +52,25 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.22 features (April 26, 2026):
+- major sprite portals improvements:
+  we're still dealing with just 1 portal pair (PORTAL0-PORTAL1) but this
+  time, there's a better parallax portal-sprite projection made in
+  engine.c, eng386.c in "drawsprite, drawsprite_LQ2X" function.
+  So there's less seams, image is way more stable and moves around less.
+  On the other hand, XY camera movement, height tracking and left-right-
+  -up-down reverse motion capture is introduced, tweaked and aligned
+   between each portal and its toolset sprites. Portals framerate increased
+   twice allowing to introduce less seams.
+
+  Portal-teleportation now depends on your sprite size so be careful as
+  larger tend to teleport earlier (place telepdest sprites further from
+  your portals!) and smaller ones teleport later so you need to get closer
+  to them.
+===========================================================================
 v0.21 features (April 22, 2026):
+- down to 384000 bytes MIDI playback from 768000 because it's too much RAM.
+  If only there's a way to optimize MIDI playback and use a smaller buffer.
 - first attempt to implement wall aligned sprite portals.
   They're like 1-sided only but allow to connect any part of a map,
   in any place, via sprite portal, forming a window passage. It was
