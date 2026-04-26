@@ -347,8 +347,8 @@ typedef struct player_struct
     long panningOffset;         // Current panning offset for this player
     long skyPanBase;            // Base panning value for sky sectors
     long lastHoriz;             // To store relative panning value
-    long skyPanBaseCeiling;   // For single sector sky panning
-    long skyPanBaseFloor;      // For single sector sky panning
+    long skyPanBaseCeiling;     // For single sector sky panning
+    long skyPanBaseFloor;       // For single sector sky panning
     char skyPanInitialized;     // Flag to track initialization
 
     int32 aim_mode;
@@ -383,13 +383,14 @@ typedef struct player_struct
     char jetpack_on,spritebridge,lastrandomspot;
     char scuba_on,footprintpal,heat_on;
 
-    char  holster_weapon,falling_counter;
-    char  gotweapon[MAX_WEAPONS],refresh_inventory,*palette;
+    char holster_weapon,falling_counter;
+    char gotweapon[MAX_WEAPONS],refresh_inventory,*palette;
 
     char toggle_key_flag,knuckle_incs; // ,select_dir;
     char walking_snd_toggle, palookup, hard_landing;
     char max_secret_rooms,secret_rooms,/*fire_flag,*/pals[3];
     char max_actors_killed,actors_killed,return_to_center;
+    short lastprtl; // Index of the last used portal to prevent ping-pong
 };
 
 extern unsigned char tempbuf[2048], packbuf[576];
