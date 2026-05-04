@@ -252,8 +252,6 @@ static long mirrorsx1, mirrorsy1, mirrorsx2, mirrorsy2;
 
 long totalclocklock;
 
-extern char use_fpu, dist_slow;
-
 extern long mmxoverlay();
 #pragma aux mmxoverlay modify [eax ebx ecx edx];
 extern long sethlinesizes(long,long,long);
@@ -343,6 +341,11 @@ extern long setupslopevlin2(long,long,long);
 #pragma aux setupslopevlin2 parm [eax][ebx][ecx] modify [edx];
 extern long slopevlin2(long,long,long,long,long,long);
 #pragma aux slopevlin2 parm [eax][ebx][ecx][edx][esi][edi];
+
+extern char use_fpu, dist_slow;
+extern char rendermodeportal;
+extern long portalzoomadj;
+extern long ScreenWidth, ScreenHeight;
 
 
 
@@ -1807,6 +1810,7 @@ prepwall(long z, walltype *wal)
 ceilscan (long x1, long x2, long sectnum)
 {
 	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long portalfovfactor; // Local storage for the scaling factor
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -1832,7 +1836,7 @@ ceilscan (long x1, long x2, long sectnum)
 	if (sec->visibility != 0) globvis = mulscale4(globvis,(long)((unsigned char)(sec->visibility+16)));
 	globalorientation = (long)sec->ceilingstat;
 
-
+	// 1. Initial vector projection based on orientation
 	if ((globalorientation&64) == 0)
 	{
 		globalx1 = singlobalang; globalx2 = singlobalang;
@@ -1858,12 +1862,31 @@ ceilscan (long x1, long x2, long sectnum)
 		globalxpanning = globalx1*ox - globaly1*oy;
 		globalypanning = globaly2*ox + globalx2*oy;
 	}
+
+	// 2. Apply base FOV scaling
 	globalx2 = mulscale16(globalx2,viewingrangerecip);
 	globaly1 = mulscale16(globaly1,viewingrangerecip);
+
+	// --- CEILING PORTAL FOV ZOOM START ---
+	// DO: Re-scale all coefficients to match the wall zoom.
+	// We use portalzoomadj (externed) to sync floor/ceiling with walls.
+	if (rendermodeportal && portalzoomadj != 0) 
+	{
+	    // Calculate factor: if viewingrange increases, texture must shrink.
+	    // Using >> 1 to dampen the effect for better visual sync.
+	    portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1)); 
+	    globalx1 = mulscale16(globalx1, portalfovfactor);
+	    globalx2 = mulscale16(globalx2, portalfovfactor);
+	    globaly1 = mulscale16(globaly1, portalfovfactor);
+	    globaly2 = mulscale16(globaly2, portalfovfactor);
+	}
+	// --- CEILING PORTAL FOV ZOOM FINISH ---
+
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
 	if (globalorientation&8) { globalxshift++; globalyshift++; }
 
+	// 3. Coordinate system transformations (rotation, mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
 	{
 		i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
@@ -1877,11 +1900,14 @@ ceilscan (long x1, long x2, long sectnum)
 	globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
 	globalxpanning += (((long)sec->ceilingxpanning)<<24);
 	globalypanning += (((long)sec->ceilingypanning)<<24);
-	globaly1 = (-globalx1-globaly1)*halfxdimen;
-	globalx2 = (globalx2-globaly2)*halfxdimen;
+	//globaly1 = (-globalx1-globaly1)*halfxdimen;
+	//globalx2 = (globalx2-globaly2)*halfxdimen;
+	globaly1 = mulscale16(-globalx1-globaly1, halfxdimen << 16);
+	globalx2 = mulscale16(globalx2-globaly2, halfxdimen << 16);
 
 	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
 
+	// 4. Final perspective calculation
 	globalx2 += globaly2*(x1-1);
 	globaly1 += globalx1*(x1-1);
 	globalx1 = mulscale16(globalx1,globalzd);
@@ -1890,6 +1916,7 @@ ceilscan (long x1, long x2, long sectnum)
 	globaly2 = mulscale16(globaly2,globalzd);
 	globvis = klabs(mulscale10(globvis,globalzd));
 
+	// 5. Draw loops (masked or standard)
 	if (!(globalorientation&0x180))
 	{
 		y1 = umost[x1]; y2 = y1;
@@ -1926,17 +1953,9 @@ ceilscan (long x1, long x2, long sectnum)
 
 	switch(globalorientation&0x180)
 	{
-		case 128:
-			msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
-		case 256:
-			settransnormal();
-			tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
-		case 384:
-			settransreverse();
-			tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
+		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
 	}
 
 	y1 = umost[x1]; y2 = y1;
@@ -1973,6 +1992,7 @@ ceilscan (long x1, long x2, long sectnum)
 florscan (long x1, long x2, long sectnum)
 {
 	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long portalfovfactor; // Local scale factor for portal zoom
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -1998,7 +2018,7 @@ florscan (long x1, long x2, long sectnum)
 	if (sec->visibility != 0) globvis = mulscale4(globvis,(long)((unsigned char)(sec->visibility+16)));
 	globalorientation = (long)sec->floorstat;
 
-
+	// 1. Initial floor vector projection
 	if ((globalorientation&64) == 0)
 	{
 		globalx1 = singlobalang; globalx2 = singlobalang;
@@ -2024,12 +2044,29 @@ florscan (long x1, long x2, long sectnum)
 		globalxpanning = globalx1*ox - globaly1*oy;
 		globalypanning = globaly2*ox + globalx2*oy;
 	}
+
+	// 2. Base FOV scaling logic
 	globalx2 = mulscale16(globalx2,viewingrangerecip);
 	globaly1 = mulscale16(globaly1,viewingrangerecip);
+
+	// --- FLOOR PORTAL FOV ZOOM START ---
+	// Synchronize floor texture scale with the portal's zoomed FOV.
+	if (rendermodeportal && portalzoomadj != 0) 
+	{
+	    // If FOV expands, the floor texture must shrink to match the walls.
+	    portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1)); 
+	    globalx1 = mulscale16(globalx1, portalfovfactor);
+	    globalx2 = mulscale16(globalx2, portalfovfactor);
+	    globaly1 = mulscale16(globaly1, portalfovfactor);
+	    globaly2 = mulscale16(globaly2, portalfovfactor);
+	}
+	// --- FLOOR PORTAL FOV ZOOM FINISH ---
+
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
 	if (globalorientation&8) { globalxshift++; globalyshift++; }
 
+	// 3. Coordinate transformations (Relative Alignment, Mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
 	{
 		i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
@@ -2043,11 +2080,14 @@ florscan (long x1, long x2, long sectnum)
 	globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
 	globalxpanning += (((long)sec->floorxpanning)<<24);
 	globalypanning += (((long)sec->floorypanning)<<24);
-	globaly1 = (-globalx1-globaly1)*halfxdimen;
-	globalx2 = (globalx2-globaly2)*halfxdimen;
+	//globaly1 = (-globalx1-globaly1)*halfxdimen;
+	//globalx2 = (globalx2-globaly2)*halfxdimen;
+	globaly1 = mulscale16(-globalx1-globaly1, halfxdimen << 16);
+	globalx2 = mulscale16(globalx2-globaly2, halfxdimen << 16);
 
 	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
 
+	// 4. Perspective depth calculations
 	globalx2 += globaly2*(x1-1);
 	globaly1 += globalx1*(x1-1);
 	globalx1 = mulscale16(globalx1,globalzd);
@@ -2056,6 +2096,7 @@ florscan (long x1, long x2, long sectnum)
 	globaly2 = mulscale16(globaly2,globalzd);
 	globvis = klabs(mulscale10(globvis,globalzd));
 
+	// 5. Drawing loops
 	if (!(globalorientation&0x180))
 	{
 		y1 = max(dplc[x1],umost[x1]); y2 = y1;
@@ -2092,17 +2133,9 @@ florscan (long x1, long x2, long sectnum)
 
 	switch(globalorientation&0x180)
 	{
-		case 128:
-			msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
-		case 256:
-			settransnormal();
-			tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
-		case 384:
-			settransreverse();
-			tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4);
-			break;
+		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
 	}
 
 	y1 = max(dplc[x1],umost[x1]); y2 = y1;
@@ -2993,47 +3026,101 @@ nextpage()
 	numframes++;
 }
 
+// [Darkcrafter07]: The idea behind adaptive tile upscale here comes 
+// from the fact that I really wanted to ease up user life on how prtls
+// render into larger tiles as their screen resolution gets larger.
+// So that we just place a 192x192 prtl sprite and engine upscales it
+// automatically. Larger sprite means higer resolution rendering and
+// it grows with screen res making for a more consisten picture quality.
 char cachedebug = 0;
-loadtile (short tilenume)
+loadtile(short tilenume)
 {
-	char *ptr;
-	long i, dasiz;
+	// ALL declarations at the top for Watcom C11.0 (1997) compliance
+	long i, dasiz, x, y, sx, sy;
+	long xscale, yscale;
+	char *ptr, *tempbuf;
+	char templock;
 
 	if ((unsigned)tilenume >= (unsigned)MAXTILES) return;
-	dasiz = tilesizx[tilenume]*tilesizy[tilenume];
+
+	// dasiz is already large (e.g. 384*384) because tilesizx was patched in loadpics
+	dasiz = (long)tilesizx[tilenume] * (long)tilesizy[tilenume];
 	if (dasiz <= 0) return;
 
-	i = tilefilenum[tilenume];
+	// Handle ART file switching
+	i = (long)tilefilenum[tilenume];
 	if (i != artfilnum)
 	{
 		if (artfil != -1) kclose(artfil);
-		artfilnum = i;
-		artfilplc = 0L;
-
-		artfilename[7] = (i%10)+48;
-		artfilename[6] = ((i/10)%10)+48;
-		artfilename[5] = ((i/100)%10)+48;
-		artfil = kopen4load(artfilename,0);
+		artfilnum = i; artfilplc = 0L;
+		artfilename[7] = (short)(i % 10) + 48;
+		artfilename[6] = (short)((i / 10) % 10) + 48;
+		artfilename[5] = (short)((i / 100) % 10) + 48;
+		artfil = kopen4load(artfilename, 0);
 		faketimerhandler();
 	}
 
-	if (cachedebug) printf("Tile:%ld\n",tilenume);
-
+	// Allocate cache memory for the tile
 	if (waloff[tilenume] == 0)
 	{
 		walock[tilenume] = 199;
-		allocache(&waloff[tilenume],dasiz,&walock[tilenume]);
+		allocache(&waloff[tilenume], dasiz, &walock[tilenume]);
 	}
 
+	// Align file pointer to the tile's data offset
 	if (artfilplc != tilefileoffs[tilenume])
 	{
-		klseek(artfil,tilefileoffs[tilenume]-artfilplc,SEEK_CUR);
+		klseek(artfil, tilefileoffs[tilenume] - artfilplc, SEEK_CUR);
 		faketimerhandler();
 	}
+
 	ptr = (char *)waloff[tilenume];
-	kread(artfil,ptr,dasiz);
+
+	if (tilenume >= PORTAL0 && tilenume <= PORTAL31)
+	{
+		// DUKE07 ADAPTIVE UPSCALER:
+		// Use allocache for a temporary buffer instead of malloc
+		templock = 200; // Lock buffer to prevent cache eviction during upscale
+		allocache((long *)&tempbuf, 192 * 192, &templock);
+
+		if (tempbuf != NULL)
+		{
+			// 1. Read the original 192x192 data from ART file
+			kread(artfil, tempbuf, 192 * 192);
+
+			// 2. Fixed-point scaling ratios (16.16)
+			// Logic: How to map a pixel from high-res back to 192px source
+			xscale = divscale16(192, (long)tilesizx[tilenume]);
+			yscale = divscale16(192, (long)tilesizy[tilenume]);
+
+			// 3. Nearest Neighbor software upscaling loop
+			for (y = 0; y < (long)tilesizy[tilenume]; y++)
+			{
+				sy = mulscale16(y, yscale);
+				for (x = 0; x < (long)tilesizx[tilenume]; x++)
+				{
+					sx = mulscale16(x, xscale);
+					ptr[y * (long)tilesizx[tilenume] + x] = tempbuf[sy * 192 + sx];
+				}
+			}
+			// Release the temp buffer for the engine to reuse
+			templock = 1;
+		}
+	}
+	else
+	{
+		// Standard tile loading for non-portal textures
+		kread(artfil, ptr, dasiz);
+	}
+
 	faketimerhandler();
-	artfilplc = tilefileoffs[tilenume]+dasiz;
+
+	// Correctly update file position tracker
+	// Portals only occupy 192x192 in the physical .ART file!
+	if (tilenume >= PORTAL0 && tilenume <= PORTAL31)
+		artfilplc = tilefileoffs[tilenume] + (192 * 192);
+	else
+		artfilplc = tilefileoffs[tilenume] + dasiz;
 }
 
 allocatepermanenttile(short tilenume, long xsiz, long ysiz)
@@ -3060,14 +3147,18 @@ allocatepermanenttile(short tilenume, long xsiz, long ysiz)
 	return(waloff[tilenume]);
 }
 
+// (320x200-192x192tile 1.0 default)
+long portalnewdimratio = 65536;
 loadpics(char *filename)
 {
 	long offscount, siz, localtilestart, localtileend, dasiz;
-	short fil, i, j, k;
+	long k, i, j, target_portal_size;
+	short fil;
 
-	strcpy(artfilename,filename);
+	strcpy(artfilename, filename);
 
-	for(i=0;i<MAXTILES;i++)
+	// Initial tables reset
+	for (i = 0; i < MAXTILES; i++)
 	{
 		tilesizx[i] = 0;
 		tilesizy[i] = 0;
@@ -3075,69 +3166,92 @@ loadpics(char *filename)
 	}
 
 	artsize = 0L;
-
 	numtilefiles = 0;
+
+	// Determine high-res portal target based on screen resolution
+	// Use ScreenWidth from config, because xdim is still 320 at this point!
+	if (ScreenWidth >= 800) target_portal_size = 512;
+	else if (ScreenWidth >= 640) target_portal_size = 384;
+	else target_portal_size = 192;
+
+	// Calc the global coeff: for how many times is new tile is LARGER
+	// 192 -> 384 gives ratio 2.0
+	portalnewdimratio = divscale16(target_portal_size, 192);
+
 	do
 	{
-		k = numtilefiles;
+		k = (long)numtilefiles;
+		artfilename[7] = (k % 10) + 48;
+		artfilename[6] = ((k / 10) % 10) + 48;
+		artfilename[5] = ((k / 100) % 10) + 48;
 
-		artfilename[7] = (k%10)+48;
-		artfilename[6] = ((k/10)%10)+48;
-		artfilename[5] = ((k/100)%10)+48;
-		if ((fil = kopen4load(artfilename,0)) != -1)
+		if ((fil = kopen4load(artfilename, 0)) != -1)
 		{
-			kread(fil,&artversion,4);
-			if (artversion != 1) return(-1);
-			kread(fil,&numtiles,4);
-			kread(fil,&localtilestart,4);
-			kread(fil,&localtileend,4);
-			kread(fil,&tilesizx[localtilestart],(localtileend-localtilestart+1)<<1);
-			kread(fil,&tilesizy[localtilestart],(localtileend-localtilestart+1)<<1);
-			kread(fil,&picanm[localtilestart],(localtileend-localtilestart+1)<<2);
+			kread(fil, &artversion, 4);
+			if (artversion != 1) return (-1);
+			kread(fil, &numtiles, 4);
+			kread(fil, &localtilestart, 4);
+			kread(fil, &localtileend, 4);
 
-			offscount = 4+4+4+4+((localtileend-localtilestart+1)<<3);
-			for(i=localtilestart;i<=localtileend;i++)
+			// Read original dimensions from .ART file
+			kread(fil, &tilesizx[localtilestart], (localtileend - localtilestart + 1) << 1);
+			kread(fil, &tilesizy[localtilestart], (localtileend - localtilestart + 1) << 1);
+			kread(fil, &picanm[localtilestart], (localtileend - localtilestart + 1) << 2);
+
+			// DUKE07 ADAPTIVE OVERRIDE:
+			// We trick the engine into thinking portals are larger BEFORE cache init.
+			for (i = localtilestart; i <= localtileend; i++)
 			{
-				tilefilenum[i] = k;
+				if (i >= PORTAL0 && i <= PORTAL31)
+				{
+					tilesizx[i] = (short)target_portal_size;
+					tilesizy[i] = (short)target_portal_size;
+				}
+			}
+
+			offscount = 4 + 4 + 4 + 4 + ((localtileend - localtilestart + 1) << 3);
+			for (i = localtilestart; i <= localtileend; i++)
+			{
+				tilefilenum[i] = (short)k;
 				tilefileoffs[i] = offscount;
-				dasiz = (long)(tilesizx[i]*tilesizy[i]);
-				offscount += dasiz;
-				artsize += ((dasiz+15)&0xfffffff0);
+				dasiz = (long)(tilesizx[i] * tilesizy[i]);
+
+				// Track total memory needed for the linear cache
+				artsize += ((dasiz + 15) & 0xfffffff0);
+
+				// Calculate offset for the next tile based on REAL file data size (192x192 base)
+				if (i >= PORTAL0 && i <= PORTAL31)
+					offscount += (192 * 192);
+				else
+					offscount += dasiz;
 			}
 			kclose(fil);
-
 			numtilefiles++;
 		}
-	}
-	while (k != numtilefiles);
+	} while (k != (long)numtilefiles);
 
-	clearbuf((long)(&gotpic[0]),(long)((MAXTILES+31)>>5),0L);
+	clearbuf((long)(&gotpic[0]), (long)((MAXTILES + 31) >> 5), 0L);
 
-	//try dpmi_DETERMINEMAXREALALLOC!
-
-	cachesize = max(artsize,1048576);
+	// Initialize the linear cache with the calculated total size
+	cachesize = max(artsize, 1048576);
 	while ((pic = (char *)kkmalloc(cachesize)) == NULL)
 	{
 		cachesize -= 65536L;
-		if (cachesize < 65536) return(-1);
+		if (cachesize < 65536) return (-1);
 	}
-	initcache((FP_OFF(pic)+15)&0xfffffff0,(cachesize-((-FP_OFF(pic))&15))&0xfffffff0);
+	initcache((FP_OFF(pic) + 15) & 0xfffffff0, (cachesize - ((-FP_OFF(pic)) & 15)) & 0xfffffff0);
 
-	for(i=0;i<MAXTILES;i++)
+	// Build the power-of-two picsiz table for the renderer
+	for (i = 0; i < MAXTILES; i++)
 	{
-		j = 15;
-		while ((j > 1) && (pow2long[j] > tilesizx[i])) j--;
+		j = 15; while ((j > 1) && (pow2long[j] > tilesizx[i])) j--;
 		picsiz[i] = ((char)j);
-		j = 15;
-		while ((j > 1) && (pow2long[j] > tilesizy[i])) j--;
-		picsiz[i] += ((char)(j<<4));
+		j = 15; while ((j > 1) && (pow2long[j] > tilesizy[i])) j--;
+		picsiz[i] += ((char)(j << 4));
 	}
 
-	artfil = -1;
-	artfilnum = -1;
-	artfilplc = 0L;
-
-	return(0);
+	artfil = -1; artfilnum = -1; artfilplc = 0L;
+	return (0);
 }
 
 #ifdef SUPERBUILD
@@ -3719,7 +3833,7 @@ drawsprite (long snum)
 
 	// portal variables start
 	short sprite_ang;
-	long n, ang, n_angle, u_scale, angle_offset, u_coord;
+	long n, ang, n_angle, u_scale, angle_offset, u_coord, v_multiplier;
 	long screen_width, x_left, x_right, w_width, u_step, cos_angle;
 	// portal variables finish
 
@@ -4007,8 +4121,7 @@ drawsprite (long snum)
 		if (lwall[xb2[MAXWALLSB-1]] >= xspan) lwall[xb2[MAXWALLSB-1]] = xspan-1;
 
 		// ======= parallax texturing on wall aligned sprites for portals start =====================
-		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
-		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
+		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
 		{
                     // use mulscale16, to evade IDIV crash
                     n = mulscale16(xdimenrecip, viewingrange);
@@ -4170,49 +4283,74 @@ drawsprite (long snum)
 		}
 
 		// ======= parallax texturing on wall aligned sprites for portals start =====================
-		if (tilenum == PORTAL0 || tilenum == PORTAL1 || tilenum == PORTAL2 || tilenum == PORTAL3 ||
-		    tilenum == PORTAL4 || tilenum == PORTAL5 || tilenum == PORTAL6 || tilenum == PORTAL7)
-	        {
-		    // set overall image width
-		    n_angle = mulscale15(xdimenrecip, viewingrange); // too wide yet
-		    n_angle = n_angle + (n_angle >> 1); // make it narrower
-		    n_angle = n_angle + (n_angle >> 2); // make it narrower again
-		    n_angle = n_angle + (n_angle >> 4); // make it even narrower
+		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
+		{
+		    xspan = tilesizx[tilenum]; yspan = tilesizy[tilenum];
+
+		    // Setup image width scale with fractional narrowing
+		    n_angle = mulscale14(xdimenrecip, viewingrange);
+		    n_angle = n_angle - (n_angle >> 3);
+		    // Get sprite angle
 		    sprite_ang = tspr->ang;
-		
-	
+
+
 		    // --- motion animated portal tiles that must be projected still start ----
-	          //    --- horizontal withOUT parallax srolling (U) ---
-	          for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-	          {
-	              lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
-	                         (globalang - sprite_ang)) & 2047) * 128 >> 11;
-	              swall[x] = mulscale16(xdimscale, viewingrange);
-	          }
-	          //    ---  vertical (V) attempt to minimize vertical scrolling    ----
-		    globalshiftval = 32 - (picsiz[tilenum] >> 4);
-		    globalyscale = (7L << (globalshiftval - 20));       // height scale 
-		    if (globalyscale <= 0) globalyscale = 1;
-		    globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval);
+		    // --- Horizontal Projection (U) ---
+		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    {
+		        // By multiplying by xspan here, we correctly map the FOV 
+		        // to the actual tile width without distorting the perspective.
+		        lwall[x] = ((mulscale23(x - halfxdimen, n_angle) + 
+		                   (globalang - sprite_ang)) & 2047) * xspan >> 11;
+		        swall[x] = mulscale16(65536, xdimscale); 
+		    }
+		    // --- Vertical Projection (V) ---
+		    // 1. Calculate the exact bit-depth needed for the actual yspan.
+		    // We find the smallest power of 2 that is GREATER than yspan.
+		    // For 192px it will be 256 (8 bits), for 384px it will be 512 (9 bits).
+		    j = 0; while (pow2long[j] < yspan) j++;
+		    globalshiftval = 32 - j;
+		    // 2. Vertical Scale (Step)
+		    // We keep your original logic for v_multiplier as it was stable.
+		    // Formula: (6 * yspan) / 128
+		    v_multiplier = (6L * yspan) >> 7; 
+		    if (v_multiplier < 1) v_multiplier = 1;
+		    // 3. Compute final y-scale (sampling step)
+		    // This must be relative to the NEW globalshiftval to avoid "stripes".
+		    globalyscale = (v_multiplier << (globalshiftval - 20));
+		    if (globalyscale <= 0) globalyscale = 1;  
+		    // 4. Sampler Start (Centering)
+		    // Align the vertical center of the texture to the center of the sprite.
+		    globalzd = ((yspan >> 1) << globalshiftval);
+		    // Apply tilt/y-offset compensation
 		    globalzd += ((100 - tspr->yoffset) * globalyscale << 3);
 		    // --- motion animated portal tiles that must be projected still finish ----
-	
-		    // ---- for static tiles where tile contents don't matter start ----
-		    // u_scale = (tilesizx[tilenum] * 8192L) / 2048L;
-		    // --- horizontal with parallax scrolling (U) ---
-		    // for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
-		    // {
-		    //     lwall[x] = ((mulscale23(x - halfxdimen, n_angle) +
-		    //                globalang) & 2047) * 128 >> 11;
-		    //     swall[x] = mulscale16(xdimscale, viewingrange);
-		    // }
-		    // globalshiftval = 32 - (picsiz[tilenum] >> 4);
-		    // globalyscale = (7L << (globalshiftval - 20));       // height scale 
-		    // if (globalyscale <= 0) globalyscale = 1;
-		    // globalzd = ((tilesizy[tilenum] >> 1) << globalshiftval); 
-		    // globalzd += (globalhoriz * globalyscale << 3);
+
+		    // ---- for static tiles where tile contents don't matter start ----	    
+		    //	// --- horizontal with parallax scrolling (U) ---
+		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
+		    //{
+		    //    // U is relative only to player's global angle (Skybox/Infinite depth style)
+		    //    lwall[x] = ((mulscale23(x - halfxdimen, n_angle) + 
+		    //               globalang) & 2047) * xspan >> 11;     
+		    //    // Static swall scale based on current viewingrange
+		    //    swall[x] = mulscale16(xdimscale, viewingrange);
+		    //}
+		    //	// --- vertical with parallax scrolling (V) ---
+		    // // Fix: Find power of 2 greater than yspan to prevent early tiling
+		    //j = 0; while (pow2long[j] < yspan) j++;
+		    //globalshiftval = 32 - j;
+		    //	// Adaptive scale: Use 7L base for 128x128 -> 14L for 256x256
+		    //	// Formula: (7 * yspan) / 128
+		    //v_multiplier = (7L * yspan) >> 7; 
+		    //if (v_multiplier < 1) v_multiplier = 1;
+		    //globalyscale = (v_multiplier << (globalshiftval - 20));       
+		    //if (globalyscale <= 0) globalyscale = 1;
+		    // // Center the texture sampler vertically
+		    //globalzd = ((yspan >> 1) << globalshiftval); 
+		    //	// Vertically locked to player's global horizon for a stable parallax effect
+		    //globalzd += (globalhoriz * globalyscale << 3);
 		    // ---- for static tiles where tile contents don't matter finish ----
-	
 	
 		    globalpicnum = tilenum; globalshade = tspr->shade;
 		    globalpal = tspr->pal; globvis = 0;
@@ -8568,6 +8706,40 @@ squarerotatetile(short tilenume)
 	}
 }
 
+squarerotatetilebig(short tilenume)
+{
+    long i, j, size;
+    char *baseptr, *p1, *p2;
+    char temp;
+
+    size = (long)tilesizx[tilenume];
+    
+    // Safety: supports only square tiles and power of 2 for maximum efficiency
+    if (size != tilesizy[tilenume] || size <= 0) return;
+
+    baseptr = (char *)waloff[tilenume];
+
+    // We use a classic in-place transposition. 
+    // Optimization: avoid scale/mul inside loops, use pointer increments.
+    for (i = 0; i < size; i++)
+    {
+        // p1 moves horizontally, p2 moves vertically
+        p1 = baseptr + i * size + (i + 1);
+        p2 = baseptr + (i + 1) * size + i;
+
+        for (j = i + 1; j < size; j++)
+        {
+            // Swap pixels (Classic XOR swap is slower on 486 than temp var)
+            temp = *p1;
+            *p1 = *p2;
+            *p2 = temp;
+
+            p1++;         // next in row
+            p2 += size;   // next in column
+        }
+    }
+}
+
 preparemirror(long dax, long day, long daz, short daang, long dahoriz, short dawall, short dasector, long *tposx, long *tposy, short *tang)
 {
 	long i, j, x, y, dx, dy;
@@ -9385,6 +9557,7 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 {
 	sectortype *sec;
 	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak;
+	long skyfov;
 	short *topptr, *botptr;
 
 	sectnum = thesector[bunchfirst[bunch]]; sec = &sector[sectnum];
@@ -9429,6 +9602,9 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 	k = 11 - (picsiz[globalpicnum]&15) - pskybits;
 	x = -1;
 
+	skyfov = viewingrange;
+	if (rendermodeportal) skyfov -= portalzoomadj;
+
 	for(z=bunchfirst[bunch];z>=0;z=p2[z])
 	{
 		wallnum = thewall[z]; nextsectnum = wall[wallnum].nextsector;
@@ -9442,7 +9618,8 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 
 			if (parallaxtype == 0)
 			{
-				n = mulscale16(xdimenrecip,viewingrange);
+				//n = mulscale16(xdimenrecip,viewingrange);
+				n = mulscale16(xdimenrecip,skyfov);
 				for(j=xb1[z];j<=xb2[z];j++)
 					lplc[j] = (((mulscale23(j-halfxdimen,n)+globalang)&2047)>>k);
 			}
@@ -9453,12 +9630,14 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 			}
 			if (parallaxtype == 2)
 			{
-				n = mulscale16(xdimscale,viewingrange);
+				//n = mulscale16(xdimscale,viewingrange);
+				n = mulscale16(xdimscale,skyfov);
 				for(j=xb1[z];j<=xb2[z];j++)
 					swplc[j] = mulscale14(sintable[((long)radarang2[j]+512)&2047],n);
 			}
 			else
-				clearbuf((long)(&swplc[xb1[z]]),xb2[z]-xb1[z]+1,mulscale16(xdimscale,viewingrange));
+				//clearbuf((long)(&swplc[xb1[z]]),xb2[z]-xb1[z]+1,mulscale16(xdimscale,viewingrange));
+				clearbuf((long)(&swplc[xb1[z]]),xb2[z]-xb1[z]+1,mulscale16(xdimscale,skyfov));
 		}
 		else if (x >= 0)
 		{

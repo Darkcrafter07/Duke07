@@ -2799,6 +2799,20 @@ void displayrooms(short snum,long smoothratio)
             rendering_portal = 1; // enter portal rendering mode
             se40codeportal0(s->x, s->y, s->z, cang, s->yvel, smoothratio);
             se40codeportal1(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal2(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal3(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal4(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal5(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal6(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal7(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal8(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal9(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal10(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal11(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal12(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal13(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal14(s->x, s->y, s->z, cang, s->yvel, smoothratio);
+            se40codeportal15(s->x, s->y, s->z, cang, s->yvel, smoothratio);
             rendering_portal = 0; // exit portal rendering mode
         }
 
@@ -2878,6 +2892,20 @@ void displayrooms(short snum,long smoothratio)
 	              rendering_portal = 1;
 	              se40codeportal0(cposx, cposy, cposz, cang, choriz, smoothratio);
 	              se40codeportal1(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal2(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal3(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal4(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal5(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal6(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal7(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal8(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal9(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal10(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal11(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal12(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal13(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal14(cposx, cposy, cposz, cang, choriz, smoothratio);
+	              se40codeportal15(cposx, cposy, cposz, cang, choriz, smoothratio);
 	              rendering_portal = 0;
 
 	              // --- portal low-detail mode and tile conflict fix start ---
@@ -3158,14 +3186,41 @@ char wallswitchcheck(short i)
 
 void startspriteportal(void)
 {
-    // At first, draw the portals
-    movestandablesportal0(); // ST 128 (ID or spritestatus 128)
-    movestandablesportal1(); // ST 129 (ID or spritestatus 129)
-    
-    // Second, make them teleport stuff
-    // turned off because we got teleportation in sector.c, "checksectors" 
-    //movetransportsportal(); // ST 128 (ID or spritestatus 128)    
-    // Both functions share the same spritestat (function call ID)
+    // Start the functions that trigger portals drawing (visual)
+    // but the function itself is called within "short spawn"
+    // case PORTLA#x, like a button switched on the level start.
+    movestandablesportal0();  // ST 120 (ID or spritestatus 128)
+    movestandablesportal1();  // ST 121 (ID or spritestatus 129)
+    movestandablesportal2();  // ST 122
+    movestandablesportal3();  // ST 123
+    movestandablesportal4();  // ST 124
+    movestandablesportal5();  // ST 125
+    movestandablesportal6();  // ST 126
+    movestandablesportal7();  // ST 127
+    movestandablesportal8();  // ST 128
+    movestandablesportal9();  // ST 129
+    movestandablesportal10(); // ST 130
+    movestandablesportal11(); // ST 131
+    movestandablesportal12(); // ST 132
+    movestandablesportal13(); // ST 133
+    movestandablesportal14(); // ST 134
+    movestandablesportal15(); // ST 135
+    movestandablesportal16(); // ST 136
+    movestandablesportal17(); // ST 137
+    movestandablesportal18(); // ST 138
+    movestandablesportal19(); // ST 139
+    movestandablesportal20(); // ST 140
+    movestandablesportal21(); // ST 141
+    movestandablesportal22(); // ST 142
+    movestandablesportal23(); // ST 143
+    movestandablesportal24(); // ST 144
+    movestandablesportal25(); // ST 145
+    movestandablesportal26(); // ST 146
+    movestandablesportal27(); // ST 147
+    movestandablesportal28(); // ST 148
+    movestandablesportal29(); // ST 149
+    movestandablesportal30(); // ST 150
+    movestandablesportal31(); // ST 151
 }
 
 long tempwallptr;
@@ -3206,13 +3261,18 @@ short spawn( short j, short pn )
         hittype[i].actorstayput = -1;
 
         //T1 = T2 = T3 = T4 = T5 = T6 = 0;
-        T1 = T2 = T3 = T4 = T5 = T6 = T7 = T8 = T9 = T10 = T11 = T12 = 0; 
+        T1 = T2 = T3 = T4 = T5 = T6 = T7 = T8 = T9 = T10 = T11 = T12 = T13 = 0;
 
         if( PN != SPEAKER && PN != LETTER && PN != DUCK && PN != TARGET && PN != TRIPBOMB && PN != VIEWSCREEN && PN != VIEWSCREEN2 && (CS&48) )
         // it's still gonna push like a button switching all linked cameras but without it the portal is not gonna auto-display
         // for the portal to display camera contents automatically, otherwise you'd need to push it like a button
         if( PN != PORTAL0) // if you add more PORTAL#x, without additional "movestandablesportal#x", preceeding PORTAL gonna show last PORTAL#x
-        if( PN != PORTAL1)
+        if( PN != PORTAL1 && PN != PORTAL2 && PN != PORTAL3 && PN != PORTAL4 && PN != PORTAL5 && PN != PORTAL6 &&
+            PN != PORTAL7 && PN != PORTAL8 && PN != PORTAL9 && PN != PORTAL10 && PN != PORTAL11 && PN != PORTAL12 &&
+            PN != PORTAL13 && PN != PORTAL14 && PN != PORTAL15 && PN != PORTAL16 && PN != PORTAL17 && PN != PORTAL18 &&
+            PN != PORTAL19 && PN != PORTAL20 && PN != PORTAL21 && PN != PORTAL22 && PN != PORTAL23 && PN != PORTAL24 &&
+            PN != PORTAL25 && PN != PORTAL26 && PN != PORTAL27 && PN != PORTAL28 && PN != PORTAL29 && PN != PORTAL30 &&
+            PN != PORTAL31)
         {
             if( !(PN >= CRACK1 && PN <= CRACK4) )
             {
@@ -3816,20 +3876,225 @@ short spawn( short j, short pn )
                 sp->owner = i;
                 sp->lotag = 1;
                 sp->extra = 1;
-                // call movestandablesportal function (1st)
-                // and movetransportsportal (2nd) function
-                // in an order set in "startspriteportal" function
-                changespritestat(i, 128);
+                // call movestandablesportal function
+                changespritestat(i, 120);
                 break;
-
             case PORTAL1:
                 sp->owner = i;
                 sp->lotag = 1;
                 sp->extra = 1;
-                // call movestandablesportal1 function (1st)
-                // and movetransportsportal (2nd) function
-                // in an order set in "startspriteportal" function
+                // call movestandablesportal1 function
+                changespritestat(i, 121);
+                break;
+            case PORTAL2:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal2 function
+                changespritestat(i, 122);
+                break;
+            case PORTAL3:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal3 function
+                changespritestat(i, 123);
+                break;
+            case PORTAL4:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal4 function
+                changespritestat(i, 124);
+                break;
+            case PORTAL5:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal5 function
+                changespritestat(i, 125);
+                break;
+            case PORTAL6:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal6 function
+                changespritestat(i, 126);
+                break;
+            case PORTAL7:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal7 function
+                changespritestat(i, 127);
+                break;
+            case PORTAL8:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal8 function
+                changespritestat(i, 128);
+                break;
+            case PORTAL9:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal9 function
                 changespritestat(i, 129);
+                break;
+            case PORTAL10:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal10 function
+                changespritestat(i, 130);
+                break;
+            case PORTAL11:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal11 function
+                changespritestat(i, 131);
+                break;
+            case PORTAL12:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal12 function
+                changespritestat(i, 132);
+                break;
+            case PORTAL13:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal13 function
+                changespritestat(i, 133);
+                break;
+            case PORTAL14:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal14 function
+                changespritestat(i, 134);
+                break;
+            case PORTAL15:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal15 function
+                changespritestat(i, 135);
+                break;
+            case PORTAL16:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal16 function
+                changespritestat(i, 136);
+                break;
+            case PORTAL17:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal17 function
+                changespritestat(i, 137);
+                break;
+            case PORTAL18:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal18 function
+                changespritestat(i, 138);
+                break;
+            case PORTAL19:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal19 function
+                changespritestat(i, 139);
+                break;
+            case PORTAL20:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal20 function
+                changespritestat(i, 140);
+                break;
+            case PORTAL21:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal21 function
+                changespritestat(i, 141);
+                break;
+            case PORTAL22:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal22 function
+                changespritestat(i, 142);
+                break;
+            case PORTAL23:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal23 function
+                changespritestat(i, 143);
+                break;
+            case PORTAL24:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal24 function
+                changespritestat(i, 144);
+                break;
+            case PORTAL25:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal25 function
+                changespritestat(i, 145);
+                break;
+            case PORTAL26:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal26 function
+                changespritestat(i, 146);
+                break;
+            case PORTAL27:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal27 function
+                changespritestat(i, 147);
+                break;
+            case PORTAL28:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal28 function
+                changespritestat(i, 148);
+                break;
+            case PORTAL29:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal29 function
+                changespritestat(i, 149);
+                break;
+            case PORTAL30:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal30 function
+                changespritestat(i, 150);
+                break;
+            case PORTAL31:
+                sp->owner = i;
+                sp->lotag = 1;
+                sp->extra = 1;
+                // call movestandablesportal31 function
+                changespritestat(i, 151);
                 break;
 
             case SHELL: //From the player
@@ -4450,7 +4715,7 @@ short spawn( short j, short pn )
                     for(camprtidx=0; camprtidx<MAXSPRITES; camprtidx++)
                     {
                         // Important: check only prtl. Do NOT touch seccam monitors (VIEWSCREEN)
-                        if ((sprite[camprtidx].picnum == PORTAL0 || sprite[camprtidx].picnum == PORTAL1))
+                        if (sprite[camprtidx].picnum >= PORTAL0 && sprite[camprtidx].picnum <= PORTAL31)
                         {
                              if (sprite[camprtidx].hitag == sp->lotag && sp->lotag > 0)
                              {
@@ -7735,6 +8000,7 @@ void copyprotect(void)
 void main(int argc,char **argv)
 {
     long i, j, k, l;
+    long last_adl_totalclock, diff, samples_to_run;
     int32 tempautorun;
 
     copyprotect();

@@ -408,7 +408,12 @@ void shoot(short i,short atwith)
 
 //            writestring(sx,sy,sz,sect,sintable[(sa+512)&2047],sintable[sa&2047],zvel<<6);
 
-            hitscan(sx,sy,sz,sect,
+            //hitscan(sx,sy,sz,sect,
+            //    sintable[(sa+512)&2047],
+            //    sintable[sa&2047],zvel<<6,
+            //    &hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
+
+            hitscanportal(sx,sy,sz,sect,
                 sintable[(sa+512)&2047],
                 sintable[sa&2047],zvel<<6,
                 &hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
@@ -580,7 +585,11 @@ void shoot(short i,short atwith)
             }
 
             s->cstat &= ~257;
-            hitscan(sx,sy,sz,sect,
+            //hitscan(sx,sy,sz,sect,
+            //    sintable[(sa+512)&2047],
+            //    sintable[sa&2047],
+            //    zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
+            hitscanportal(sx,sy,sz,sect,
                 sintable[(sa+512)&2047],
                 sintable[sa&2047],
                 zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
@@ -961,7 +970,11 @@ void shoot(short i,short atwith)
                 zvel = (100-ps[p].horiz-ps[p].horizoff)*32;
             else zvel = 0;
 
-            hitscan(sx,sy,sz-ps[p].pyoff,sect,
+            //hitscan(sx,sy,sz-ps[p].pyoff,sect,
+            //    sintable[(sa+512)&2047],
+            //    sintable[sa&2047],
+            //    zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
+            hitscanportal(sx,sy,sz-ps[p].pyoff,sect,
                 sintable[(sa+512)&2047],
                 sintable[sa&2047],
                 zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
@@ -1066,7 +1079,11 @@ void shoot(short i,short atwith)
 //            RESHOOTGROW:
 
             s->cstat &= ~257;
-            hitscan(sx,sy,sz,sect,
+            //hitscan(sx,sy,sz,sect,
+            //    sintable[(sa+512)&2047],
+            //    sintable[sa&2047],
+            //    zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);
+            hitscanportal(sx,sy,sz,sect,
                 sintable[(sa+512)&2047],
                 sintable[sa&2047],
                 zvel<<6,&hitsect,&hitwall,&hitspr,&hitx,&hity,&hitz,CLIPMASK1);

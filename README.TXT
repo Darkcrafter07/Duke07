@@ -52,6 +52,33 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.23 features (May 4, 2026):
+- big sprite portal improvements:
+- all portal sprites MUST have 384x384px dimensions in art files;
+- portals are now shot-through by hitscans and projectiles, hitscans
+  are a subject to improve in the next release;
+- portals quality are now adjusted dynamicaly according to screen res:
+  192x192 for 320x200+, 384x384 for 640x400+, 512x512 for 800x600+;
+- portals now have more or less proper parallax inside so you can walk,
+  fly and jump around to see how the perspective changes almost as if they
+  were part of the map naturally;
+- teleportation code improved allowing you to stack them on top of each
+  other like building windows etc...
+- ONLY 8 portal pairs (e.g 16 portals tiles) are possible currently;
+- monsters are still NOT teleported through portals - TODO;
+- freezethrower projectile explodes on exit, you could try to increase
+  bounce amount in defs.con;
+- a.asm, alq2x.asm, alq3x.asm bug fix, replace "shr ebx, 32" to "shr ebx, 0
+  allowing to fix old bug that crashes the game with the portal code or on
+  big maps...
+- make "/nofpu" flag demo-savegame compatible with regular mode thanks to
+  new function "grouscan" that acts like a wrapper calling both
+  "grouscanfpu and grouscanint" and switching between them according to
+  "use_fpu" variable, so that it loads both functions in memory.
+  If "use_fpu" flag is set, it loads grouscanint and uses it for 1 ticks,
+  then swithces to grouscanfpu and vice versa, allowing for much better
+  demo-savegame memory footprint.
+===========================================================================
 v0.22 features (April 26, 2026):
 - major sprite portals improvements:
   we're still dealing with just 1 portal pair (PORTAL0-PORTAL1) but this

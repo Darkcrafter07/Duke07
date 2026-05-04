@@ -498,7 +498,8 @@ vlineasm1_:
 fixchain1a: sub edi, 320
 beginvline:
 	mov ebx, edx
-mach3a: shr ebx, 32
+  ;mach3a: shr ebx, 32 ; that works more reliable on 586 not 486
+mach3a: shr ebx, 0
 fixchain1b: add edi, 320
 	mov bl, byte ptr [esi+ebx]
 	add edx, eax
@@ -519,7 +520,8 @@ mvlineasm1_:
 	mov ebp, ebx
 beginmvline:
 	mov ebx, edx
-maskmach3a: shr ebx, 32
+  ;maskmach3a: shr ebx, 32 ; that works more reliable on 586 not 486
+maskmach3a: shr ebx, 0
 	mov bl, byte ptr [esi+ebx]
 	cmp bl, 255
 	je short skipmask1
@@ -609,7 +611,8 @@ tvlineasm1_:
 ALIGN 16
 begintvline:
 	mov ebx, edx
-transmach3a: shr ebx, 32
+  ;trasnmach3a: shr ebx, 32 ; that works more reliable on 586 not 486
+transmach3a: shr ebx, 0
 	mov bl, byte ptr [esi+ebx]
 	cmp bl, 255
 	je short skiptrans1
@@ -992,7 +995,8 @@ beginmvlineasm42:
 	mov eax, ebp
 	mov ebx, esi
 machmv16: shr eax, 32
-machmv15: shr ebx, 32
+  ;machmv15: shr ebx, 32 ; that works more reliable on 586 not 486
+machmv15: shr ebx, 0
 machmv12: add ebp, 88888888h ;vince[3]
 machmv9: add esi, 88888888h ;vince[2]
 machmv10: mov al, byte ptr [eax+88888888h] ;bufplce[3]

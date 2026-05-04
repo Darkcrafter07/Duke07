@@ -2885,113 +2885,14 @@ void cheatkeys(short snum)
 
 void checksectors(short snum)
 {
-    // Original Duke3D variables (must stay at the top)
     long i = -1, oldz;
-    short j, hitscanwall;
-    
-    // Portal-specific variables with "prtl" suffix
-    long dxprtl, dyprtl, dzinitprtl, dzprtl;
-    long dynrangexyprtl, dynrangezprtl;
     struct player_struct *p;
-    short jprtl; 
-    short spriteindexprtl, camindexprtl, teleportdestprtl;
+    short j, hitscanwall;
 
     p = &ps[snum];
 
-    // T11 (temp_data): camera indexes (camindexportal).
-    // T12 (temp_data): activation stats and portal-camera spin counters.
-    spriteindexprtl = headspritesect[p->cursectnum];
-    while(spriteindexprtl >= 0)
-    {
-        if(sprite[spriteindexprtl].picnum == PORTAL0 || sprite[spriteindexprtl].picnum == PORTAL1)
-        {
-            // Initial distance calculations
-            dxprtl = klabs(p->posx - sprite[spriteindexprtl].x);
-            dyprtl = klabs(p->posy - sprite[spriteindexprtl].y);
-            dzinitprtl = (p->posz - sprite[spriteindexprtl].z) >> 8;
-            dzprtl = klabs(dzinitprtl);
-
-            // --- COMPLETE SAFE ZONE (XY + Z) ---
-            // Prevents being sucked back into the exit portal immediately
-            if (p->lastprtl == spriteindexprtl)
-            {
-                // If within a larger x of detection range on all axes, stay locked
-                if ((dxprtl + dyprtl) < 1200 && dzprtl < 128) 
-                {
-                    goto NEXTPRTL; 
-                }
-                else
-                {
-                    p->lastprtl = -1; // Reset lock when player moves away
-                }
-            }
-
-            // 1. Calculate dynamic proximity based on sprite repeats
-            dynrangexyprtl = (1024 * sprite[spriteindexprtl].xrepeat) >> 6;
-            dynrangezprtl = (128L * sprite[spriteindexprtl].yrepeat) >> 6;
-
-            // Final proximity check using dynamic ranges
-            if ( ((dxprtl + dyprtl) < dynrangexyprtl) && (dzprtl < dynrangezprtl) )
-            {
-                // 2. Get portal-cam indexes (CAMERA1) from T11 (index 10)
-                camindexprtl = (short)hittype[spriteindexprtl].temp_data[10]; 
-                
-                if (camindexprtl < 0 || sprite[camindexprtl].picnum != CAMERA1)
-                {
-                    for(jprtl=0; jprtl<MAXSPRITES; jprtl++)
-                    {
-                        if(sprite[jprtl].picnum == CAMERA1 && sprite[jprtl].lotag == sprite[spriteindexprtl].hitag)
-                        {
-                            // Add index [10]
-                            hittype[spriteindexprtl].temp_data[10] = (long)jprtl; 
-                            camindexprtl = jprtl;
-                            break;
-                        }
-                    }
-                }
-
-                // 3. Silent teleportation logic
-                if (camindexprtl >= 0 && camindexprtl < MAXSPRITES)
-                {
-                    teleportdestprtl = -1;
-                    for(jprtl=0; jprtl<MAXSPRITES; jprtl++)
-                    {
-                        if(sprite[jprtl].picnum == PRTLTELEPDEST && sprite[jprtl].lotag == sprite[spriteindexprtl].hitag)
-                        {
-                            teleportdestprtl = jprtl;
-                            break;
-                        }
-                    }
-
-                    if (teleportdestprtl >= 0) // Destination found
-                    {
-                        // Set the LOCK on the destination portal
-                        p->lastprtl = teleportdestprtl; 
-
-                        p->posx = sprite[teleportdestprtl].x;
-                        p->posy = sprite[teleportdestprtl].y;
-                        p->posz = sprite[teleportdestprtl].z;
-                        p->ang  = sprite[teleportdestprtl].ang;
-                    }
-                    else // Fallback to camera
-                    {
-                        p->posx = sprite[camindexprtl].x;
-                        p->posy = sprite[camindexprtl].y;
-                        p->posz = sprite[camindexprtl].z;
-                        p->ang  = sprite[camindexprtl].ang;
-                    }
-                
-                    updatesector(p->posx, p->posy, &p->cursectnum);
-                    return; 
-                }
-            }
-        }
-        NEXTPRTL:
-        spriteindexprtl = nextspritesect[spriteindexprtl];
-    }
-
-
-
+    // Call custom portal teleportation logic first
+    teleportplayerstuffportal(snum);
 
     switch(sector[p->cursectnum].lotag)
     {

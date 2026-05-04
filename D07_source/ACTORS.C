@@ -608,6 +608,7 @@ movesprite(short spritenum, long xchange, long ychange, long zchange, unsigned l
 {
     long daz,h, oldx, oldy;
     short retval, dasectnum, a, cd;
+    short jprtl, hitsprprtl, targetexitprtl;
     char bg;
 
     bg = badguy(&sprite[spritenum]);
@@ -687,9 +688,41 @@ movesprite(short spritenum, long xchange, long ychange, long zchange, unsigned l
         if (retval == 0)
             return(16384+dasectnum);
 
-	return(retval);
-}
+    // --- PORTAL HIT INTERCEPTION ---
+    if ((retval & 49152) == 49152)
+    {
+        hitsprprtl = (retval & 16383);
+        if (sprite[hitsprprtl].picnum >= PORTAL0 && sprite[hitsprprtl].picnum <= PORTAL31)
+        {
+            targetexitprtl = (short)hittype[hitsprprtl].temp_data[10];
+            
+            // EMERGENCY SEARCH: If cache is empty, find destination now
+            if (targetexitprtl < 0 || targetexitprtl >= MAXSPRITES)
+            {
+                for(jprtl = 0; jprtl < MAXSPRITES; jprtl++)
+                {
+                    if ((sprite[jprtl].picnum == PRTLTELEPDEST || sprite[jprtl].picnum == CAMERA1) && 
+                         sprite[jprtl].lotag == sprite[hitsprprtl].hitag)
+                    {
+                        targetexitprtl = jprtl;
+                        hittype[hitsprprtl].temp_data[10] = (long)jprtl; // Cache it!
+                        break;
+                    }
+                }
+            }
 
+            if (targetexitprtl >= 0 && targetexitprtl < MAXSPRITES)
+            {
+                teleportspriteportal(spritenum, hitsprprtl, targetexitprtl);
+                adjustportalparallax(spritenum, hitsprprtl, 360); 
+                return 0; // Carry on through the portal
+            }
+        }
+    }
+    // --- PORTAL HIT INTERCEPTION END ---
+
+    return(retval);
+}
 
 short ssp(short i,unsigned long cliptype) //The set sprite function
 {
@@ -2395,84 +2428,6 @@ void movestandables(void)
     }
 }
 
-// Trimmed-down movestandables but dedicated
-// for drawing portals like viewscreen actors
-void movestandablesportal0(void)
-{
-    short i, nexti;
-    spritetype *s;
-
-    i = headspritestat[128]; // movestandablesportal0 function ID
-    while(i >= 0)
-    {
-        nexti = nextspritestat[i];
-        s = &sprite[i];
-
-        if( s->sectnum < 0 ) { KILLIT(i); i = nexti; continue; }
-
-        // Update bpos for portal sprite itself
-        hittype[i].bposx = s->x;
-        hittype[i].bposy = s->y;
-        hittype[i].bposz = s->z;
-
-        if(s->picnum == PORTAL0)
-        {
-            if(s->xrepeat == 0) { KILLIT(i); i = nexti; continue; }
-
-            // Keep portal sprite global index active for the renderer
-            portalsprite0 = i;
-            
-            // Note: All camera parallax and orientation logic 
-            // has been moved to portals.c (SE40_DrawPortal0)
-            // to ensure stability and correct freelook rendering.
-            goto BOLT;
-        }
-        BOLT:
-        i = nexti;
-    }
-}
-
-// we need to duplicate the portal drawing functions "movestandablesportal#x"
-// with different status IDs, otherwise, when we define
-// buttons in game.c like below:
-// if( PN != SPEAKER && PN != LETTER && PN != DUCK && PN != TARGET
-//  && PN != TRIPBOMB && PN != VIEWSCREEN && PN != VIEWSCREEN2 && (CS&48) )
-// if( PN != PORTAL0 && PN != PORTAL1) // - 1st PORTAL0 gonna show PORTAL1 contents and so on
-void movestandablesportal1(void)
-{
-    short i, nexti;
-    spritetype *s;
-
-    i = headspritestat[129]; // movestandablesportal1 function ID
-    while(i >= 0)
-    {
-        nexti = nextspritestat[i];
-        s = &sprite[i];
-
-        if( s->sectnum < 0 ) { KILLIT(i); i = nexti; continue; }
-
-        // Update bpos for portal sprite itself
-        hittype[i].bposx = s->x;
-        hittype[i].bposy = s->y;
-        hittype[i].bposz = s->z;
-
-        if(s->picnum == PORTAL1)
-        {
-            if(s->xrepeat == 0) { KILLIT(i); i = nexti; continue; }
-
-            // Keep portal sprite global index active for the renderer
-            portalsprite1 = i;
-            
-            // Note: All camera parallax and orientation logic 
-            // has been moved to portals.c (SE40_DrawPortal1)
-            // to ensure stability and correct freelook rendering.
-            goto BOLT;
-        }
-        BOLT:
-        i = nexti;
-    }
-}
-
 void bounce(short i)
 {
     long k, l, daang, dax, day, daz, xvect, yvect, zvect;
@@ -3196,275 +3151,6 @@ void movetransports(void)
         i = nexti;
     }
 }
-
-// teleport function for portals
-void movetransportsportal(void)
-{
-    char warpspriteto, isaliveactor;
-    short i, j, k, l, p, sect, sectlotag, nexti, nextj, nextk;
-    long ll,onfloorz,q;
-
-    i = headspritestat[128]; //movetransportsportal function ID
-    while(i >= 0)
-    {
-        sect = SECT;
-        sectlotag = sector[sect].lotag;
-        nexti = nextspritestat[i];
-        if(OW == i)
-        {
-            i = nexti;
-            continue;
-        }
-        onfloorz = T5;
-        if(T1 > 0) T1--;
-
-        j = headspritesect[sect];
-        while(j >= 0)
-        {
-            nextj = nextspritesect[j];
-
-            // find out if it's an alive actor
-            isaliveactor = 0;
-            if (sprite[j].statnum == 10)
-            {
-                // Player - always alive
-                isaliveactor = 1;
-            }
-            else if (sprite[j].statnum == 1)
-            {
-                // Monsters - alive if those are known cases
-                switch(sprite[j].picnum)
-                {
-                    case SHARK:
-                    case COMMANDER:
-                    case OCTABRAIN:
-                    case GREENSLIME:
-                    case GREENSLIME+1:
-                    case GREENSLIME+2:
-                    case GREENSLIME+3:
-                    case GREENSLIME+4:
-                    case GREENSLIME+5:
-                    case GREENSLIME+6:
-                    case GREENSLIME+7:
-                        isaliveactor = 1;
-                        break;
-                }
-            }
-
-            // base logic: split alive/lifeless
-            if (isaliveactor)
-            {
-                // alive actors - teleport by absolute coordinates
-                if (klabs(sprite[j].x - sprite[i].x) < 512L && klabs(sprite[j].y - sprite[i].y) < 512L)
-                {
-                    if (sprite[j].statnum == 10)
-                    {
-                        // Teleport player absolutely
-                        p = sprite[j].yvel;
-                        ps[p].on_warping_sector = 1;
-                        if( ps[p].transporter_hold != 0 || ps[p].jumping_counter != 0 )
-                        {
-                            j = nextj;
-                            continue;
-                        }
-                        if(klabs(ps[p].posx - sprite[i].x) < 512L && klabs(ps[p].posy - sprite[i].y) < 512L)
-                        {
-                            // we don't need effects for a silent teleportation
-                            //if(sprite[i].pal == 0)
-                            //{
-                            //    spawn(i, TRANSPORTERBEAM);
-                            //    spritesound(TELEPORTER, i);
-                            //}
-                            ps[p].ang = sprite[OW].ang;
-                            T1 = 13;
-                            hittype[OW].temp_data[0] = 13;
-                            ps[p].transporter_hold = 13;
-                            ps[p].bobposx = ps[p].oposx = ps[p].posx = sprite[OW].x;
-                            ps[p].bobposy = ps[p].oposy = ps[p].posy = sprite[OW].y;
-                            ps[p].oposz = ps[p].posz = sprite[OW].z - PHEIGHT;
-                            changespritesect(j, sprite[OW].sectnum);
-                            ps[p].cursectnum = sprite[j].sectnum;
-                            // we don't need effects for a silent teleportation
-                            //if(sprite[i].pal == 0)
-                            //{
-                            //    k = spawn(OW, TRANSPORTERBEAM);
-                            //    spritesound(TELEPORTER, k);
-                            //}
-                            j = nextj;
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        // Teleport monsters absolutely too
-                        sprite[j].x = sprite[OW].x;
-                        sprite[j].y = sprite[OW].y;
-                        sprite[j].z = sprite[OW].z;
-                        sprite[j].ang = sprite[OW].ang;
-                        changespritesect(j, sprite[OW].sectnum);
-                    }
-                }
-            }
-            else
-            {
-                // Lifeless actors - teleport by relative coordinates
-                if (klabs(sprite[j].x - sprite[i].x) < 512L && klabs(sprite[j].y - sprite[i].y) < 512L)
-                {
-                    switch(sprite[j].statnum)
-                    {
-                        case 10: // Player won't get here because of "isaliveactor=1"
-                            break;
-                        case 1:
-                            switch(sprite[j].picnum)
-                            {
-                                case SHARK:
-                                case COMMANDER:
-                                case OCTABRAIN:
-                                case GREENSLIME:
-                                case GREENSLIME+1:
-                                case GREENSLIME+2:
-                                case GREENSLIME+3:
-                                case GREENSLIME+4:
-                                case GREENSLIME+5:
-                                case GREENSLIME+6:
-                                case GREENSLIME+7:
-                                    if(sprite[j].extra > 0) goto JBOLT;
-                            }
-                        case 4:
-                        case 5:
-                        case 12:
-                        case 13:
-                            ll = klabs(sprite[j].zvel);
-                            {
-                                warpspriteto = 0;
-                                if( ll && sectlotag == 2 && sprite[j].z < (sector[sect].ceilingz+ll) )
-                                    warpspriteto = 1;
-                                if( ll && sectlotag == 1 && sprite[j].z > (sector[sect].floorz-ll) )
-                                    warpspriteto = 1;
-                                if( sectlotag == 0 && ( onfloorz || klabs(sprite[j].z-SZ) < 4096) )
-                                {
-                                    if( sprite[OW].owner != OW && onfloorz && T1 > 0 && sprite[j].statnum != 5 )
-                                    {
-                                        T1++;
-                                        goto BOLT;
-                                    }
-                                    warpspriteto = 1;
-                                }
-                                if( warpspriteto )
-                                {
-                                    switch(sprite[j].picnum)
-                                    {
-                                        case TRANSPORTERSTAR:
-                                        case TRANSPORTERBEAM:
-                                        case TRIPBOMB:
-                                        case BULLETHOLE:
-                                        case WATERSPLASH2:
-                                        case BURNING:
-                                        case BURNING2:
-                                        case FIRE:
-                                        case FIRE2:
-                                        case TOILETWATER:
-                                        case LASERLINE:
-                                            goto JBOLT;
-                                        case PLAYERONWATER:
-                                            if(sectlotag == 2)
-                                            {
-                                                sprite[j].cstat &= 32767;
-                                                break;
-                                            }
-                                        default:
-                                            if(sprite[j].statnum == 5 && !(sectlotag == 1 || sectlotag == 2) )
-                                                break;
-                                        case WATERBUBBLE:
-                                            if(sectlotag > 0)
-                                            {
-                                                k = spawn(j,WATERSPLASH2);
-                                                if( sectlotag == 1 && sprite[j].statnum == 4 )
-                                                {
-                                                    sprite[k].xvel = sprite[j].xvel>>1;
-                                                    sprite[k].ang = sprite[j].ang;
-                                                    ssp(k,CLIPMASK0);
-                                                }
-                                            }
-                                            switch(sectlotag)
-                                            {
-                                                case 0:
-                                                    if(onfloorz)
-                                                    {
-                                                        if( sprite[j].statnum == 4 || ( checkcursectnums(sect) == -1 && checkcursectnums(sprite[OW].sectnum) == -1 ) )
-                                                        {
-                                                            // Relative teleportation
-                                                            sprite[j].x += (sprite[OW].x-SX);
-                                                            sprite[j].y += (sprite[OW].y-SY);
-                                                            sprite[j].z -= SZ - sector[sprite[OW].sectnum].floorz;
-                                                            sprite[j].ang = sprite[OW].ang;
-                                                            hittype[j].bposx = sprite[j].x;
-                                                            hittype[j].bposy = sprite[j].y;
-                                                            hittype[j].bposz = sprite[j].z;
-
-                                                            // we don't need effects for a silent teleportation
-                                                            //if(sprite[i].pal == 0)
-                                                            //{
-                                                            //    k = spawn(i,TRANSPORTERBEAM);
-                                                            //    spritesound(TELEPORTER,k);
-                                                            //    k = spawn(OW,TRANSPORTERBEAM);
-                                                            //    spritesound(TELEPORTER,k);
-                                                            //}
-                                                            if( sprite[OW].owner != OW )
-                                                            {
-                                                                T1 = 13;
-                                                                hittype[OW].temp_data[0] = 13;
-                                                            }
-                                                            changespritesect(j,sprite[OW].sectnum);
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        sprite[j].x += (sprite[OW].x-SX);
-                                                        sprite[j].y += (sprite[OW].y-SY);
-                                                        sprite[j].z = sprite[OW].z+4096;
-                                                        hittype[j].bposx = sprite[j].x;
-                                                        hittype[j].bposy = sprite[j].y;
-                                                        hittype[j].bposz = sprite[j].z;
-                                                        changespritesect(j,sprite[OW].sectnum);
-                                                    }
-                                                    break;
-                                                case 1:
-                                                    sprite[j].x += (sprite[OW].x-SX);
-                                                    sprite[j].y += (sprite[OW].y-SY);
-                                                    sprite[j].z = sector[sprite[OW].sectnum].ceilingz+ll;
-                                                    hittype[j].bposx = sprite[j].x;
-                                                    hittype[j].bposy = sprite[j].y;
-                                                    hittype[j].bposz = sprite[j].z;
-                                                    changespritesect(j,sprite[OW].sectnum);
-                                                    break;
-                                                case 2:
-                                                    sprite[j].x += (sprite[OW].x-SX);
-                                                    sprite[j].y += (sprite[OW].y-SY);
-                                                    sprite[j].z = sector[sprite[OW].sectnum].floorz-ll;
-                                                    hittype[j].bposx = sprite[j].x;
-                                                    hittype[j].bposy = sprite[j].y;
-                                                    hittype[j].bposz = sprite[j].z;
-                                                    changespritesect(j,sprite[OW].sectnum);
-                                                    break;
-                                            }
-                                            break;
-                                    }
-                                }
-                            }
-                            break;
-                    }
-                }
-            }
-            JBOLT:
-            j = nextj;
-        }
-        BOLT: i = nexti;
-    }
-}
-
-
-
 
 void moveactors(void)
 {

@@ -218,6 +218,8 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define T10 hittype[i].temp_data[9]
 #define T11 hittype[i].temp_data[10]
 #define T12 hittype[i].temp_data[11]
+#define T13 hittype[i].temp_data[12]
+
 
 #define ESCESCAPE if(KB_KeyPressed( sc_Escape ) ) gameexit(" ");
 
@@ -432,7 +434,15 @@ extern char ipath[80],opath[80];
 
 extern char music_fn[4][11][13],music_select;
 extern char env_music_fn[4][13];
-extern short camsprite, portalsprite0, portalsprite1;
+extern short camsprite;
+extern short portalsprite0, portalsprite1, portalsprite2, portalsprite3;
+extern short portalsprite4, portalsprite5, portalsprite6, portalsprite7;
+extern short portalsprite8, portalsprite9, portalsprite10, portalsprite11;
+extern short portalsprite12, portalsprite13, portalsprite14, portalsprite15;
+extern short portalsprite16, portalsprite17, portalsprite18, portalsprite19;
+extern short portalsprite20, portalsprite21, portalsprite22, portalsprite23;
+extern short portalsprite24, portalsprite25, portalsprite26, portalsprite27;
+extern short portalsprite28, portalsprite29, portalsprite30, portalsprite31;
 
 // extern char gotz;
 extern char inspace(short sectnum);
@@ -445,7 +455,7 @@ typedef struct weaponhit
     short tempang,actorstayput,dispicnum;
     short timetosleep;
     long floorz,ceilingz,lastvx,lastvy,bposx,bposy,bposz;
-    long temp_data[12]; // increased from 6 to 12 for portals
+    long temp_data[13]; // increased from 6 to 14 for portals
 };
 
 extern struct weaponhit hittype[MAXSPRITES];

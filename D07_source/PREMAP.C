@@ -778,6 +778,30 @@ void setupbackdrop(short sky)
 //values higher shrink them
 }
 
+void initallportals(void)
+{
+    short i, j;
+    // Scan all sprites on the map ONCE
+    for(i=0; i<MAXSPRITES; i++)
+    {
+        if (sprite[i].picnum >= PORTAL0 && sprite[i].picnum <= PORTAL7)
+        {
+            hittype[i].temp_data[10] = -1; // Reset T11
+            hittype[i].temp_data[12] = -1; // Reset T13
+            
+            for(j=0; j<MAXSPRITES; j++)
+            {
+                if (sprite[j].lotag == sprite[i].hitag)
+                {
+                    if (sprite[j].picnum == CAMERA1) 
+                        hittype[i].temp_data[10] = (long)j;
+                    if (sprite[j].picnum == PRTLTELEPDEST) 
+                        hittype[i].temp_data[12] = (long)j;
+                }
+            }
+        }
+    }
+}
 
 void prelevel(char g)
 {
@@ -792,8 +816,10 @@ void prelevel(char g)
 
     resetprestat(0, g);
     numclouds = 0;
-    // reset index of the last used portal to prevent ping-pong
-    ps[snum].lastprtl = -1;
+
+    // === portal prelevel reset - start ===
+    initallportals();
+    // === portal prelevel reset - finish ===
 
     for (i = 0; i < numsectors; i++)
     {

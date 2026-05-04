@@ -762,14 +762,39 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define SIGN2 4912
 #define JURYGUY 4943
 
-#define PORTAL0 4960
-#define PORTAL1 4961
-#define PORTAL2 4962
-#define PORTAL3 4963
-#define PORTAL4 4964
-#define PORTAL5 4965
-#define PORTAL6 4966
-#define PORTAL7 4967
+#define PORTAL0  4960
+#define PORTAL1  4961
+#define PORTAL2  4962
+#define PORTAL3  4963
+#define PORTAL4  4964
+#define PORTAL5  4965
+#define PORTAL6  4966
+#define PORTAL7  4967
+#define PORTAL8  4968
+#define PORTAL9  4969
+#define PORTAL10 4970
+#define PORTAL11 4971
+#define PORTAL12 4972
+#define PORTAL13 4973
+#define PORTAL14 4974
+#define PORTAL15 4975
+#define PORTAL16 4976
+#define PORTAL17 4977
+#define PORTAL18 4978
+#define PORTAL19 4979
+#define PORTAL20 4980
+#define PORTAL21 4981
+#define PORTAL22 4982
+#define PORTAL23 4983
+#define PORTAL24 4984
+#define PORTAL25 4985
+#define PORTAL26 4986
+#define PORTAL27 4987
+#define PORTAL28 4988
+#define PORTAL29 4989
+#define PORTAL30 4990
+#define PORTAL31 4991
 
 #define PRTLTELEPDEST 5062
+
 
