@@ -784,7 +784,7 @@ void initallportals(void)
     // Scan all sprites on the map ONCE
     for(i=0; i<MAXSPRITES; i++)
     {
-        if (sprite[i].picnum >= PORTAL0 && sprite[i].picnum <= PORTAL7)
+        if (sprite[i].picnum >= PORTAL0 && sprite[i].picnum <= PORTAL31)
         {
             hittype[i].temp_data[10] = -1; // Reset T11
             hittype[i].temp_data[12] = -1; // Reset T13

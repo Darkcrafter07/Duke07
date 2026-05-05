@@ -27,6 +27,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 #include "duke3d.h"
 
+extern long xdimuniversal;
 extern long tempsectorz[MAXSECTORS];
 extern long tempsectorpicnum[MAXSECTORS];
 extern short FOFTILE, FOFTILEX, FOFTILEY;
@@ -999,7 +1000,7 @@ void drawroomsportal(long ox, long oy, long p_z, short p_ang, long ohoriz,
                    short osect, spritetype *src_prtl, spritetype *dst_cam)
 {
     long dx, dy, ratio, distp, angdiff, fdx, fdy, player_deviation;
-    long local_x, local_y, tx, ty, final_x, final_y;
+    long local_x, local_y, tx, ty, final_x, final_y, old_xdim_univ;
     long maxparaldist, slowed_updown;
     short slowed_turnlr, final_sect;
 
@@ -1116,7 +1117,17 @@ void drawroomsportal(long ox, long oy, long p_z, short p_ang, long ohoriz,
     // DO: Apply angdiff to p_ang for proper head rotation synchronization.
     // DON'T: Modify p_ang with hardcoded constants like 512 or 1536 here.
     rendermodeportal = 1; // Enable sky fix before rendering
+
+    old_xdim_univ = xdimuniversal;
+    if (old_xdim_univ <= 0) old_xdim_univ = xdim;
+    if (src_prtl->picnum >= PORTAL0 && src_prtl->picnum <= PORTAL31)
+         { xdimuniversal = (long)tilesizy[src_prtl->picnum]; }
+    else { xdimuniversal = xdim; }
+
     drawrooms(final_x, final_y, p_z, (short)(slowed_turnlr & 2047), slowed_updown, final_sect);
+
+    xdimuniversal = old_xdim_univ;
+
     rendermodeportal = 0; // Disable fix after rendering
 
     // Restore original FOV for the player's main view to prevent screen distortion
@@ -1448,7 +1459,7 @@ void se40codeportal0(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -1734,7 +1745,7 @@ void se40codeportal1(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2020,7 +2031,7 @@ void se40codeportal2(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2306,7 +2317,7 @@ void se40codeportal3(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2592,7 +2603,7 @@ void se40codeportal4(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2878,7 +2889,7 @@ void se40codeportal5(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3163,7 +3174,7 @@ void se40codeportal6(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3448,7 +3459,7 @@ void se40codeportal7(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3732,7 +3743,7 @@ void se40codeportal8(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4017,7 +4028,7 @@ void se40codeportal9(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4302,7 +4313,7 @@ void se40codeportal10(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4587,7 +4598,7 @@ void se40codeportal11(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4872,7 +4883,7 @@ void se40codeportal12(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5157,7 +5168,7 @@ void se40codeportal13(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5442,7 +5453,7 @@ void se40codeportal14(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5726,7 +5737,7 @@ void se40codeportal15(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {

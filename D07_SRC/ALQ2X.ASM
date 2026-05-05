@@ -8,14 +8,14 @@
 ; If there's a need to duplicate pixel writes horizontally,
 ; then operate screenwidth in px (320) to "edi" registers, like
 ; [edi-320] or [edi-319] or [edi-321] or [edi-322] or [edi-323]
-; if there were offsets like -1, +1, +2 +3 etc... It's going to
-; screw up on screen resolutions different than 320x200 and
-; instead of 320 constant, "_xdim" variable from engine.c could
-; be externed in here and loaded into a register but that's
-; further plans, let's do LQ2X for 320x200 mode first
-; and then think about it later. What if we want to go further
-; e.g. 3x, 4x and so on? Increment offset by 320 each step?
-; e.g. for 3x - [edi-640], for 4x - [edi-960]? Turns out YES.
+; if there were offsets like -1, +1, +2 +3 etc... What if we 
+; want to go further e.g. 3x, 4x and so on?
+; Increment offset by 320 each step? e.g. for 3x - [edi-640], 
+; for 4x - [edi-960]? Turns out YES. But in order to make it
+; work for resolutions different than 320x200, we externed
+: "long xdimuniversal" defined in engine.c-eng386.c and
+; manipulated further in "D07_source" "game.c" and "portals.c".
+; So that it works better for as many cases as possible.
 
 ; for modified engine.c functions that keep some fields
 ; unprocessed in an interleaved fashion, e.g. :
@@ -60,6 +60,7 @@ EXTRN _pow2char : near
 EXTRN _pow2long : near
 
 EXTRN _slopeisfar : byte
+EXTRN _xdimuniversal : dword
 EXTRN _reciptabletextureint : near
 
 ;EXTRN _ydetail : dword     ; com-line parameter retrieved from Duke3D game.c
@@ -205,13 +206,20 @@ hlineasm4_:
 	jnz short skipthe1byte
 
 	mov eax, esi
+
 hxsiz1: shr eax, 26
 hysiz1: shld eax, edx, 6
 hoffs1: mov cl, byte ptr [eax+88888888h]
 pal1: mov bl, byte ptr [ecx+88888888h]
 	sub esi, _asm1
 	sub edx, _asm2
-	mov byte ptr [edi], bl                        ; not this one
+	mov byte ptr [edi], bl          ; not this one
+    
+
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl          ; but duplicate it too for cleaner image
+	sub edi, _xdimuniversal
+    
 	dec edi
 	dec ebp
 
@@ -270,7 +278,11 @@ machxbits2: rol eax, 6                     ;xbits
 ALIGN 16
 prebeginhline64:
 	mov dword ptr [edi], ebx                      ; original px draw
-	mov dword ptr [edi+320], ebx                  ; duplicate and shift it up by 1 px
+	  ;mov dword ptr [edi+320], ebx                  ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+	mov dword ptr [edi], ebx                  ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+
 beginhline64:
 
 hmach3a: rol eax, 6
@@ -317,14 +329,21 @@ skipthe4byte:
 	jz skipdrawthe2
 	rol ebx, 16
 	mov word ptr [edi+2], bx                      ; original px draw
-	mov word ptr [edi+322], bx                    ; duplicate and shift it up by 1 px
+
+	add edi, _xdimuniversal
+	mov word ptr [edi+2], bx                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+
 	sub edi, 2
 skipdrawthe2:
 	test ebp, 1
 	jz skipdrawthe1
 	shr ebx, 24
 	mov byte ptr [edi+3], bl                      ; original px draw
-	mov word ptr [edi+323], bx                    ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+        mov word ptr [edi+3], bx                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+
 skipdrawthe1:
 
 	pop ebp
@@ -342,7 +361,11 @@ pal8: mov bl, byte ptr [ecx+88888888h]
 	sub esi, _asm1
 	sub edx, _asm2
 	mov byte ptr [edi], bl                        ; original px draw
-	mov byte ptr [edi+320], bl                    ; duplicate and shift it up by 1 px
+
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+
 	dec edi
 	dec ebp
 	jnz begshorthline
@@ -494,7 +517,7 @@ beginvline:
 
   ;mach3a: shr ebx, 32    ; that works more reliably on 586 but not 486
 mach3a: shr ebx, 0
-fixchain1b: add edi, 320
+fixchain1b: add edi, 320          ; 320x200 only? No, it's versatile
 	mov bl, byte ptr [esi+ebx]
 	add edx, eax
 	dec ecx
@@ -523,7 +546,7 @@ maskmach3c: mov bl, [ebp+ebx]
 	mov byte ptr [edi+1], bl     ; - add 1px wide line to right
 skipmask1:
 	add edx, eax
-fixchain1m: add edi, 320
+fixchain1m: add edi, 320     ; 320x200 only? No, it's versatile
 	sub ecx, 1
 	jnc short beginmvline
 
@@ -614,12 +637,12 @@ transmach3c: mov al, [ebx+88888888h]
 transrev1:
 	mov ah, byte ptr [edi]
 transmach4: mov al, byte ptr [eax+88888888h]   ;_transluc[eax]
-	mov byte ptr [edi], al                   ; original px write
-	mov byte ptr [edi+1], al                 ; duplicate and shift 1px right
+	mov byte ptr [edi], al                 ; original px write
+	mov byte ptr [edi+1], al               ; duplicate and shift 1px right
                                                ; enabled since "drawsprite" function fixed
 skiptrans1:
 	add edx, ebp
-fixchain1t: add edi, 320
+fixchain1t: add edi, 320                 ; 320x200 only? No, it's versatile
 	dec ecx
 	jnz short begintvline
 
@@ -1018,7 +1041,7 @@ machmv2: mov bl, byte ptr [eax+88888888h] ;palookupoffs[0]
 
 	shl dl, 4
 	xor eax, eax
-fixchain2mb: add edi, 320
+fixchain2mb: add edi, 320              ; 320x200 only? No, it's versatile
 	mov al, dl
 	add eax, offset mvcase0
 	jmp eax       ;16 byte cases
@@ -1148,7 +1171,7 @@ smach2: adc esi, 88888888h              ;xincshr16+yalwaysinc
 startsvline:
 spal: mov al, [eax+88888888h]           ;palookup
 	mov byte ptr [edi], al
-fixchain1s: add edi, 320
+fixchain1s: add edi, 320             ; 320x200 only? No, it's versatile
 
 spritevline_:
 smach3: add edx, 88888888h              ;dayinc
@@ -1195,7 +1218,7 @@ mstartsvline:
 mspal: mov al, [eax+88888888h]           ;palookup
 	mov byte ptr [edi], al
 mskipsvline:
-mfixchain1s: add edi, 320
+mfixchain1s: add edi, 320             ; 320x200 only? No, it's versatile
 
 mspritevline_:
 msmach3: add edx, 88888888h              ;dayinc
@@ -1252,7 +1275,7 @@ tspal: mov bl, [eax+88888888h]               ;palookup
 tmach4: mov al, byte ptr [ebx+88888888h]     ;_transluc
 	mov byte ptr [edi], al
 tskipsvline:
-tfixchain1s: add edi, 320
+tfixchain1s: add edi, 320         ; 320x200 only? No, it's versatile
 
 tenterspritevline:
 tsmach3: add edx, 88888888h              ;dayinc
@@ -1369,7 +1392,9 @@ mmach2da: mov bl, byte ptr [eax+88888888h]    ;shadeoffs
 	mov al, ch
 mmach2db: mov bh, byte ptr [eax+88888888h]    ;shadeoffs
 	mov word ptr [edi], bx                  ; original px write - yeah
-	mov word ptr [edi+320], bx              ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov word ptr [edi], bx              ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
 	add edi, 2
 	sub ecx, 131072
 	jnc short mbeghline
@@ -1496,7 +1521,9 @@ transrev7:
 tmach2: mov al, byte ptr [edx+88888888h]     ;_transluc
 	mov byte ptr [edi], al                 ; original px write but it's just half the job
                                              ; look for more below (tmach3)
-	mov byte ptr [edi+320], al             ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov byte ptr [edi], al             ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
 
 	cmp ch, 255
 	je short tskip2
@@ -1509,7 +1536,9 @@ transrev9:
 tmach3: mov al, byte ptr [edx+88888888h]     ;_transluc
 	mov byte ptr [edi+1], al               ; original px write but it's just half the job
                                              ; look for more above (tmach2)
-	mov byte ptr [edi+321], al             ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov byte ptr [edi+1], al             ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
 tskip2:
 
 	add edi, 2
@@ -1581,7 +1610,7 @@ transrev10:
 tran2edic: mov ah, byte ptr [edi+88888888h]      ;getpixel
 transrev11:
 tran2palc: mov al, byte ptr [ecx+88888888h]      ;palookup1
-fixchaint2d: add edi, 320
+fixchaint2d: add edi, 320                     ; 320x200 only? No, it's versatile
 tran2trac: mov bl, byte ptr [eax+88888888h]      ;_transluc
 tran2edid: mov byte ptr [edi+88888888h-320], bl  ;drawpixel
 	jnc short begintvline2
@@ -1621,7 +1650,7 @@ transrev14:
 tran2pala: mov al, byte ptr [ecx+88888888h]      ;palookup1
 transrev15:
 tran2palb: mov bl, byte ptr [edx+88888888h]      ;palookup2
-fixchaint2c: add edi, 320
+fixchaint2c: add edi, 320                        ; 320x200 only? No, it's versatile
 tran2traa: mov al, byte ptr [eax+88888888h]      ;_transluc
 tran2trab: mov ah, byte ptr [ebx+88888888h]      ;_transluc
 tran2edib: mov word ptr [edi+88888888h-320], ax  ;drawpixels

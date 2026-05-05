@@ -2745,7 +2745,7 @@ void se40code(long x, long y, long z, long a, long h, long smoothratio)
 //#include "portals.c"
 
 static long oyrepeat=-1;
-extern long setviewcnt, bakxsiz[4], bakysiz[4];
+extern long xdimuniversal, setviewcnt, bakxsiz[4], bakysiz[4];
 short rendering_portal = 0; // Infinite rendering cycle protection
 void displayrooms(short snum,long smoothratio)
 {
@@ -2756,6 +2756,8 @@ void displayrooms(short snum,long smoothratio)
     struct player_struct *p;
 
     p = &ps[snum];
+
+    xdimuniversal = xdim;
 
 //    if(screencapt == 0 && (p->gm&MODE_MENU) && ( (current_menu/100) == 3 ) || (current_menu >= 1000 && current_menu < 2999 ) )
   //      return;
@@ -2840,6 +2842,7 @@ void displayrooms(short snum,long smoothratio)
             if (waloff[MAXTILES-1] == 0)
                 allocache((long *)&waloff[MAXTILES-1],100*160,&walock[MAXTILES-1]);
             setviewtotile(MAXTILES-1,100L,160L);
+            xdimuniversal = 160L; // [Darkcrafter07]: Sync pitch for screencap tile
         }
         else if( ( ud.screen_tilting && p->rotscrnang ) || ud.detail==0 )
         {
@@ -2849,9 +2852,15 @@ void displayrooms(short snum,long smoothratio)
                 if (waloff[MAXTILES-2] == 0)
                     allocache(&waloff[MAXTILES-2],320L*320L,&walock[MAXTILES-2]);
                 if ((tang&1023) == 0)
+                {
                     setviewtotile(MAXTILES-2,200L>>(1-ud.detail),320L>>(1-ud.detail));
+                    xdimuniversal = 320L>>(1-ud.detail); // [Darkcrafter07]: Sync pitch for tilted tile
+                }
                 else
+                {
                     setviewtotile(MAXTILES-2,320L>>(1-ud.detail),320L>>(1-ud.detail));
+                    xdimuniversal = 320L>>(1-ud.detail); // [Darkcrafter07]: Sync pitch for tilted tile
+                }
                 if ((tang&1023) == 512)
                 {     //Block off unscreen section of 90ø tilted screen
                     j = ((320-60)>>(1-ud.detail));
@@ -2865,6 +2874,10 @@ void displayrooms(short snum,long smoothratio)
                 i = (tang&511); if (i > 256) i = 512-i;
                 i = sintable[i+512]*8 + sintable[i]*5L;
                 setaspect(i>>1,yxaspect);
+          }
+          else
+          {
+                xdimuniversal = xdim; // [Darkcrafter07]: Standard screen pitch
           }
 
           if ( (snum == myconnectindex) && (numplayers > 1) )

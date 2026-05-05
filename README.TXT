@@ -52,26 +52,48 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.24 features (May 6, 2026):
+- big 386 exe improvements;
+- lots of scanlines alike artifacts fixed in resolutions different than
+  320x200, including portal rendering. Low detail (double low detail mode)
+  now works fine in D07LQ2X.EXE. Original viewscreen security cameras are
+  NOT fixed yet unfortunately;
+- 386 EXE bugfix: ceilscan_LQ2X and florscan_LQ2X functions now properly
+  render ceilings and floors if horizontal flat sprites are located there.
+  The older versions I did just didn't have proper SMC setup and a sprite
+  could override values in rendering causing those surfaces to rotate to
+  the same angle sprites are facing;
+- 386 EXE bug NOT fixed: drawsprite_LQ2X function still does NOT render
+  transluscent wall sprites like glasses, BE CAREFUL!
+- wrapper functions introduced to load both int/fpu slope rendering, also
+  eng386.c features way more of them to improve savegame stability but
+  that's experimental science yet;
+===========================================================================
 v0.23 features (May 4, 2026):
 - big sprite portal improvements:
-- all portal sprites MUST have 384x384px dimensions in art files;
+- all portal sprites MUST have 192x192px dimensions in art files;
 - portals are now shot-through by hitscans and projectiles, hitscans
-  are a subject to improve in the next release;
+are a subject to improve in the next release;
 - portals quality are now adjusted dynamicaly according to screen res:
-  192x192 for 320x200+, 384x384 for 640x400+, 512x512 for 800x600+;
+192x192 for 320x200+, 384x384 for 640x400+, 512x512 for 800x600+;
 - portals now have more or less proper parallax inside so you can walk,
-  fly and jump around to see how the perspective changes almost as if they
-  were part of the map naturally;
+fly and jump around to see how the perspective changes almost as if they
+were part of the map naturally;
 - teleportation code improved allowing you to stack them on top of each
-  other like building windows etc...
+other like building windows etc...
 - ONLY 8 portal pairs (e.g 16 portals tiles) are possible currently;
 - monsters are still NOT teleported through portals - TODO;
 - freezethrower projectile explodes on exit, you could try to increase
-  bounce amount in defs.con;
+bounce amount in defs.con;
 - a.asm, alq2x.asm, alq3x.asm bug fix, replace "shr ebx, 32" to "shr ebx, 0
-  allowing to fix old bug that crashes the game with the portal code or on
-  big maps...
-- make "/nofpu" flag demo-savegame compatible with regular mode thanks to
+allowing to fix old bug that crashes the game with the portal code or on
+big maps...
+
+  Upd: sorry, there are some mistakes I made during this release, like
+  premap.c initallportals function initializes only up to PORTAL7,
+  not PORTAL31 (while we have 16 active) so yeah...
+ NOT DONE YET AS WELL:
+  make "/nofpu" flag demo-savegame compatible with regular mode thanks to
   new function "grouscan" that acts like a wrapper calling both
   "grouscanfpu and grouscanint" and switching between them according to
   "use_fpu" variable, so that it loads both functions in memory.

@@ -8,14 +8,14 @@
 ; If there's a need to duplicate pixel writes horizontally,
 ; then operate screenwidth in px (320) to "edi" registers, like
 ; [edi-320] or [edi-319] or [edi-321] or [edi-322] or [edi-323]
-; if there were offsets like -1, +1, +2 +3 etc... It's going to
-; screw up on screen resolutions different than 320x200 and
-; instead of 320 constant, "_xdim" variable from engine.c could
-; be externed in here and loaded into a register but that's
-; further plans, let's do LQ2X for 320x200 mode first
-; and then think about it later. What if we want to go further
-; e.g. 3x, 4x and so on? Increment offset by 320 each step?
-; e.g. for 3x - [edi-640], for 4x - [edi-960]? Turns out YES.
+; if there were offsets like -1, +1, +2 +3 etc... What if we 
+; want to go further e.g. 3x, 4x and so on?
+; Increment offset by 320 each step? e.g. for 3x - [edi-640], 
+; for 4x - [edi-960]? Turns out YES. But in order to make it
+; work for resolutions different than 320x200, we externed
+: "long xdimuniversal" defined in engine.c-eng386.c and
+; manipulated further in "D07_source" "game.c" and "portals.c".
+; So that it works better for as many cases as possible.
 
 ; for modified engine.c functions that keep some fields
 ; unprocessed in an interleaved fashion, e.g. :
@@ -60,6 +60,7 @@ EXTRN _pow2char : near
 EXTRN _pow2long : near
 
 EXTRN _slopeisfar : byte
+EXTRN _xdimuniversal : dword
 EXTRN _reciptabletextureint : near
 
 ;EXTRN _ydetail : dword     ; com-line parameter retrieved from Duke3D game.c
@@ -205,15 +206,23 @@ hlineasm4_:
 	jnz short skipthe1byte
 
 	mov eax, esi
+
 hxsiz1: shr eax, 26
 hysiz1: shld eax, edx, 6
 hoffs1: mov cl, byte ptr [eax+88888888h]
 pal1: mov bl, byte ptr [ecx+88888888h]
 	sub esi, _asm1
 	sub edx, _asm2
-	mov byte ptr [edi], bl                        ; not this one
+	mov byte ptr [edi], bl          ; not this one
+    
 
-
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl          ; but duplicate it too for cleaner image
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl          ; but duplicate it too for cleaner image
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
+    
 	dec edi
 	dec ebp
 
@@ -237,7 +246,6 @@ pal3: mov bl, byte ptr [ecx+88888888h]
 	sub esi, _asm1
 	sub edx, _asm2
 	mov word ptr [edi-1], bx                      ; not this one
-
 	sub edi, 2
 	sub ebp, 2
 
@@ -273,8 +281,14 @@ machxbits2: rol eax, 6                     ;xbits
 ALIGN 16
 prebeginhline64:
 	mov dword ptr [edi], ebx                      ; original px draw
-	mov dword ptr [edi+320], ebx                  ; duplicate and shift it up by 1 px for 2X mode
-	mov dword ptr [edi+640], ebx                  ; duplicate and shift it up by 2 px for 3X mode
+	  ;mov dword ptr [edi+320], ebx                  ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+	mov dword ptr [edi], ebx                  ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+	mov dword ptr [edi], ebx                  ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
+
 beginhline64:
 
 hmach3a: rol eax, 6
@@ -321,16 +335,24 @@ skipthe4byte:
 	jz skipdrawthe2
 	rol ebx, 16
 	mov word ptr [edi+2], bx                      ; original px draw
-	mov word ptr [edi+322], bx                    ; duplicate and shift it up by 1 px for 2X mode
-	mov word ptr [edi+323], bx                    ; duplicate and shift it up by 2 px for 3X mode
+
+	add edi, _xdimuniversal
+	mov word ptr [edi+2], bx                    ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+	mov word ptr [edi+2], bx                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
+
 	sub edi, 2
 skipdrawthe2:
 	test ebp, 1
 	jz skipdrawthe1
 	shr ebx, 24
 	mov byte ptr [edi+3], bl                      ; original px draw
-	mov word ptr [edi+323], bx                    ; duplicate and shift it up by 1 px for 2X mode
-	mov word ptr [edi+324], bx                    ; duplicate and shift it up by 2 px for 3X mode
+	add edi, _xdimuniversal
+        mov word ptr [edi+3], bx                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+
 skipdrawthe1:
 
 	pop ebp
@@ -348,8 +370,14 @@ pal8: mov bl, byte ptr [ecx+88888888h]
 	sub esi, _asm1
 	sub edx, _asm2
 	mov byte ptr [edi], bl                        ; original px draw
-	mov byte ptr [edi+320], bl                    ; duplicate and shift it up by 1 px for 2X mode
-	mov byte ptr [edi+321], bl                    ; duplicate and shift it up by 2 px for 3X mode
+
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl                    ; duplicate and shift it up by 1 px
+	add edi, _xdimuniversal
+	mov byte ptr [edi], bl                    ; duplicate and shift it up by 1 px
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
+
 	dec edi
 	dec ebp
 	jnz begshorthline
@@ -498,7 +526,8 @@ vlineasm1_:
 fixchain1a: sub edi, 320
 beginvline:
 	mov ebx, edx
-  ;mach3a: shr ebx, 32 ; that works more reliable on 586 not 486
+
+  ;mach3a: shr ebx, 32    ; that works more reliably on 586 but not 486
 mach3a: shr ebx, 0
 fixchain1b: add edi, 320
 	mov bl, byte ptr [esi+ebx]
@@ -506,8 +535,7 @@ fixchain1b: add edi, 320
 	dec ecx
 	mov bl, byte ptr [ebp+ebx]
 	mov byte ptr [edi], bl       ; - original px write
-	mov byte ptr [edi+1], bl     ; - add 1px wide line to right for 2X mode
-	mov byte ptr [edi+2], bl     ; - add +1 1px wide line to right for 3X mode
+	mov byte ptr [edi+1], bl     ; - add 1px wide line to right
 	jnz short beginvline
 	pop ebp
 	mov eax, edx
@@ -527,8 +555,7 @@ maskmach3a: shr ebx, 0
 	je short skipmask1
 maskmach3c: mov bl, [ebp+ebx]
 	mov byte ptr [edi], bl       ; - original px write
-	mov byte ptr [edi+1], bl     ; - add 1px wide line to right for 2X mode
-	mov byte ptr [edi+2], bl     ; - add +1 1px wide line to right for 3X mode
+	mov byte ptr [edi+1], bl     ; - add 1px wide line to right
 skipmask1:
 	add edx, eax
 fixchain1m: add edi, 320
@@ -611,7 +638,8 @@ tvlineasm1_:
 ALIGN 16
 begintvline:
 	mov ebx, edx
-  ;trasnmach3a: shr ebx, 32 ; that works more reliable on 586 not 486
+
+  ;transmach3a: shr ebx, 32 ; that works more reliable on 586 not 486
 transmach3a: shr ebx, 0
 	mov bl, byte ptr [esi+ebx]
 	cmp bl, 255
@@ -622,9 +650,7 @@ transrev1:
 	mov ah, byte ptr [edi]
 transmach4: mov al, byte ptr [eax+88888888h]   ;_transluc[eax]
 	mov byte ptr [edi], al                   ; original px write
-	mov byte ptr [edi+1], al                 ; duplicate and shift 1px right for 2X mode
-                                               ; enabled since "drawsprite" function fixed
-	mov byte ptr [edi+2], al                 ; duplicate and shift 2px right for 3X mode
+	mov byte ptr [edi+1], al                 ; duplicate and shift 1px right
                                                ; enabled since "drawsprite" function fixed
 skiptrans1:
 	add edx, ebp
@@ -1377,9 +1403,16 @@ mmach5d: mov ch, byte ptr [ebx+88888888h]    ;picoffs
 mmach2da: mov bl, byte ptr [eax+88888888h]    ;shadeoffs
 	mov al, ch
 mmach2db: mov bh, byte ptr [eax+88888888h]    ;shadeoffs
+
 	mov word ptr [edi], bx                  ; original px write - yeah
-	mov word ptr [edi+320], bx              ; duplicate and shift 1px up for 2X mode
-	mov word ptr [edi+321], bx              ; duplicate and shift 2px up for 3X mode
+
+	add edi, _xdimuniversal
+	mov word ptr [edi], bx              ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov word ptr [edi], bx              ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
+
 	add edi, 2
 	sub ecx, 131072
 	jnc short mbeghline
@@ -1506,8 +1539,12 @@ transrev7:
 tmach2: mov al, byte ptr [edx+88888888h]     ;_transluc
 	mov byte ptr [edi], al                 ; original px write but it's just half the job
                                              ; look for more below (tmach3)
-	mov byte ptr [edi+320], al             ; duplicate and shift 1px up for 2X mode
-	mov byte ptr [edi+321], al             ; duplicate and shift 2px up for 3X mode
+	add edi, _xdimuniversal
+	mov byte ptr [edi], al             ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov byte ptr [edi], al             ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
 
 	cmp ch, 255
 	je short tskip2
@@ -1520,8 +1557,12 @@ transrev9:
 tmach3: mov al, byte ptr [edx+88888888h]     ;_transluc
 	mov byte ptr [edi+1], al               ; original px write but it's just half the job
                                              ; look for more above (tmach2)
-	mov byte ptr [edi+321], al             ; duplicate and shift 1px up for 2X mode
-	mov byte ptr [edi+322], al             ; duplicate and shift 2px up for 3X mode
+	add edi, _xdimuniversal
+	mov byte ptr [edi+1], al             ; duplicate and shift 1px up
+	add edi, _xdimuniversal
+	mov byte ptr [edi+1], al             ; duplicate and shift 1px up
+	sub edi, _xdimuniversal
+	sub edi, _xdimuniversal
 tskip2:
 
 	add edi, 2
@@ -1729,8 +1770,8 @@ slop9: lea edi, [edi+88888888h]          ;pinc
 
 
 ALIGN 16
-PUBLIC setupslopevlinLQ3X_                ; (3X)
-setupslopevlinLQ3X_:
+PUBLIC setupslopevlinLQX_         ; (2X)
+setupslopevlinLQX_:
 	mov dword ptr [slopmach3+3], ebx    ;ptr
 	mov dword ptr [slopmach5+2], ecx    ;pinc
 	neg ecx
@@ -1755,7 +1796,7 @@ setupslopevlinLQ3X_:
 	ret
 
 ALIGN 16
-PUBLIC slopevlinLQX_         ; (3X)
+PUBLIC slopevlinLQX_       ; (2X)
 slopevlinLQX_:
 	mov _ebpbak, ebp
 	mov _espbak, esp
@@ -1837,7 +1878,6 @@ slopmach4: mov ebx, dword ptr [esp+88888888h]
 	mov ebx, esi
 	mov [ebp], al    ; write 1px center
 	mov [ebp+1], al  ; write 1px right (LQ2X mode)
-	mov [ebp+2], al  ; write 2px right (LQ3X mode)
 	mov edx, edi
 	jnz short beginnerslopeloop
 
@@ -1892,7 +1932,7 @@ slp2tmpduval        dd 0
 slp2stepcl          db 4
 
 ALIGN 16 ; Using 16-byte alignment to prevent 486 prefetch queue crashes
-PUBLIC setupslopevlin2LQX_      ; (LQ3X mode enabled)
+PUBLIC setupslopevlin2LQX_     ; (LQ2X mode enabled)
 setupslopevlin2LQX_:
 	; SMC: Patching the inner loop instructions for specific texture/screen params
 	mov dword ptr [slopmachptrb+1], ebx    ; Patch texture base address
@@ -1910,7 +1950,7 @@ setupslopevlin2LQX_:
 	ret
 
 ALIGN 16
-PUBLIC slopevlin2LQX_      ; (LQ3X mode enabled)
+PUBLIC slopevlin2LQX_     ; (LQ2X mode enabled)
 slopevlin2LQX_:
 	push ebp
 	push esi
@@ -2039,7 +2079,6 @@ slopmachptrb:
 	mov al, byte ptr [edx+eax]    ; Apply lighting/shading
 	mov [ebp], al                 ; Write pixel to screen (center)
 	mov [ebp+1], al               ; Write 1px right (LQ2X mode enabled)
-	mov [ebp+2], al               ; Write 2px right (LQ3X mode enabled)
 	
 	; Linear stepping within the block (Perspective-correct only at block boundaries)
 	add esi, [slp2tmpdu]
@@ -2124,6 +2163,8 @@ slp2krdone:
 	ret
 
 ; === integer slopes drawing - finish ==============================================
+
+
 
 ALIGN 16
 PUBLIC setuprhlineasm4_

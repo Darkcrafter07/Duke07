@@ -342,6 +342,7 @@ extern long setupslopevlin2(long,long,long);
 extern long slopevlin2(long,long,long,long,long,long);
 #pragma aux slopevlin2 parm [eax][ebx][ecx][edx][esi][edi];
 
+long xdimuniversal;
 extern char use_fpu, dist_slow;
 extern char rendermodeportal;
 extern long portalzoomadj;
@@ -967,16 +968,8 @@ drawalls_distslow(long bunch)
 	if ((andwstat1 & 3) != 3)     //draw ceilings
 	{
 		if ((sec->ceilingstat & 3) == 2)
-			if (use_fpu)
-			{
-				//use full grouscan detailization if FPU is present - 1st time
-				grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
-			}
-			else
-			{
-				//use lower grouscan detailization if FPU is not present - 1st time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
-			}
+			grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
+
 		else if ((sec->ceilingstat & 1) == 0)
 			ceilscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
 		else
@@ -985,16 +978,7 @@ drawalls_distslow(long bunch)
 	if ((andwstat2 & 12) != 12)   //draw floors
 	{
 		if ((sec->floorstat & 3) == 2)
-			if (use_fpu)
-			{
-				//use full grouscan detailization if FPU is present - 2nd time
-				grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
-			}
-			else
-			{
-				//use lower grouscan detailization if FPU is not present - 2nd time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
-			}
+			grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
 		else if ((sec->floorstat & 1) == 0)
 			florscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
 		else
@@ -1354,7 +1338,6 @@ drawalls_distslow(long bunch)
 	}  // End wall loop
 }  // End function
 
-
 // the original drawalls without slow distance optimization
 drawalls (long bunch)
 {
@@ -1378,16 +1361,7 @@ drawalls (long bunch)
 	if ((andwstat1&3) != 3)     //draw ceilings
 	{
 		if ((sec->ceilingstat&3) == 2)
-			if (use_fpu)
-			{
-				//use full grouscan detailization if FPU is present - 1st time
-				grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
-			}
-			else
-			{
-				//use lower grouscan detailization if FPU is not present - 1st time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
-			}
+			grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
 		else if ((sec->ceilingstat&1) == 0)
 			ceilscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
 		else
@@ -1396,16 +1370,7 @@ drawalls (long bunch)
 	if ((andwstat2&12) != 12)   //draw floors
 	{
 		if ((sec->floorstat&3) == 2)
-			if (use_fpu)
-			{
-				//use full grouscan detailization if FPU is present - 2nd time
-				grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
-			}
-			else
-			{
-				//use lower grouscan detailization if FPU is not present - 2nd time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
-			}
+			grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
 		else if ((sec->floorstat&1) == 0)
 			florscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
 		else
@@ -1726,9 +1691,6 @@ drawalls (long bunch)
 		}
 	}
 }
-
-
-
 
 prepwall(long z, walltype *wal)
 {
@@ -2654,12 +2616,8 @@ loadtables()
 		initksqrt();
 
 		for(i=0;i<2048;i++) reciptable[i] = divscale30(2048L,i+2048);
-		if (!use_fpu)
-		{
-                        genreciptabletextureint();
-                        genreciptableshadeint();
-		}
-
+		genreciptabletextureint();
+		genreciptableshadeint();
 		
 		if ((fil = kopen4load("tables.dat",0)) != -1)
 		{
@@ -9099,8 +9057,30 @@ wallmost(short *mostbuf, long w, long sectnum, char dastat)
 
 
 
-#define BITSOFPRECISION 3  //Don't forget to change this in A.ASM also!
 grouscan (long dax1, long dax2, long sectnum, char dastat)
+{
+	char grouscanstarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) grouscanstarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_fpu)
+	{
+	// in original fpu mode, use int version for a short while then switch
+		if       (!grouscanstarted)   grouscanint(dax1, dax2, sectnum, dastat);
+		else if   (grouscanstarted)   grouscanfpu(dax1, dax2, sectnum, dastat);
+	}
+	else
+	{
+	// in intger mode, use the fpu function for a short while then switch
+		if       (!grouscanstarted)   grouscanfpu(dax1, dax2, sectnum, dastat);
+		else if   (grouscanstarted)   grouscanint(dax1, dax2, sectnum, dastat);
+	}
+}
+
+#define BITSOFPRECISION 3  //Don't forget to change this in A.ASM also!
+grouscanfpu (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
 	long daslope, dasqr;
@@ -9377,7 +9357,7 @@ void slopevlin2relativeC(long p, long start_z, long slopaloffs, long cnt, long b
 }
 
 char slopeisfar; //for asm slopevlin2
-grouscan_nonfpu (long dax1, long dax2, long sectnum, char dastat)
+grouscanint (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
 	long daslope, dasqr;
@@ -9545,8 +9525,6 @@ grouscan_nonfpu (long dax1, long dax2, long sectnum, char dastat)
 		shoffs += shinc;
 	}
 }
-
-
 
 getpalookup(long davis, long dashade)
 {

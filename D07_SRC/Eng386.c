@@ -75,12 +75,6 @@ static long lowrecip[1024], nytooclose, nytoofar;
 static unsigned long distrecip[16384];
 #endif
 
-//quality degradation in low detail fashion like it's done in Doom
-// 1 = full detail, 2 = half detail, 4 = quarter detail, etc.
-short pxlzefctr = 2;
-short use_lqmode = 1;   //this variable makes it use LQ2X
-                        //low-detail functions
-
 static char moustat = 0;
 
 long transarea = 0, totalarea = 0, beforedrawrooms = 1;
@@ -365,6 +359,14 @@ extern long setupdrawslab(long,long);
 #pragma aux setupdrawslab parm [eax][ebx];
 extern long drawslab(long,long,long,long,long,long);
 #pragma aux drawslab parm [eax][ebx][ecx][edx][esi][edi];
+
+
+long xdimuniversal;
+//quality degradation in low detail fashion like it's done in Doom
+// 1 = full detail, 2 = half detail, 4 = quarter detail, etc.
+short pxlzefctr = 2;
+short use_lqmode = 1;   //this variable makes it use LQ2X
+                        //low-detail functions
 
 extern char use_fpu, dist_slow;
 extern char rendermodeportal;
@@ -968,22 +970,22 @@ bunchfront (long b1, long b2)
 }
 
 
+// drawalls with distance culling to speed-up big open areas
 drawalls_distslow(long bunch)
 {
-    sectortype *sec, *nextsec;
-    walltype *wal;
-    long i, j, k, l, m, n, x, y, x1, x2, cz[5], fz[5];
-    long z, wallnum, sectnum, nextsectnum, globalhorizbak;
-    long startsmostwallcnt, startsmostcnt, gotswall;
-    long dx, dy, wallDistance, renderFrequency;
-    char andwstat1, andwstat2, shouldRenderWall;
+	sectortype *sec, *nextsec;
+	walltype *wal;
+	long i, j, k, l, m, n, x, y, x1, x2, cz[5], fz[5];
+	long z, wallnum, sectnum, nextsectnum, globalhorizbak;
+	long startsmostwallcnt, startsmostcnt, gotswall;
+	long dx, dy, wallDistance, renderFrequency;
+	char andwstat1, andwstat2, shouldRenderWall;
 
 	z = bunchfirst[bunch];
 	sectnum = thesector[z]; sec = &sector[sectnum];
 
-	// CEILING/FLOOR RENDERING - COMPLETELY UNTOUCHED
 	andwstat1 = 0xff; andwstat2 = 0xff;
-	for (; z >= 0; z = p2[z])
+	for (; z >= 0; z = p2[z])  //uplc/dplc calculation
 	{
 		andwstat1 &= wallmost(uplc, z, sectnum, (char)0);
 		andwstat2 &= wallmost(dplc, z, sectnum, (char)1);
@@ -992,72 +994,77 @@ drawalls_distslow(long bunch)
 	if ((andwstat1 & 3) != 3)     //draw ceilings
 	{
 		if ((sec->ceilingstat & 3) == 2)
-		{
-			if (use_fpu) grouscan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
-			else grouscan_nonfpu(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
-		}
-		else if ((sec->ceilingstat & 1) == 0)
-		{
-			if (use_lqmode) ceilscan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
-			else ceilscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
-		}
-		else
-		{
-			if (use_lqmode) parascan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0, bunch);
-			else parascan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0, bunch);
-		}
-	}
+			grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0);
 
+		else if ((sec->ceilingstat & 1) == 0)
+			ceilscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
+		else
+			parascan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 0, bunch);
+	}
 	if ((andwstat2 & 12) != 12)   //draw floors
 	{
 		if ((sec->floorstat & 3) == 2)
-		{
-			if (use_fpu) grouscan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
-			else grouscan_nonfpu(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
-		}
+			grouscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1);
 		else if ((sec->floorstat & 1) == 0)
-		{
-			if (use_lqmode) florscan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
-			else florscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
-		}
+			florscan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum);
 		else
-		{
-			if (use_lqmode) parascan_LQ2X(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1, bunch);
-			else parascan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1, bunch);
-		}
+			parascan(xb1[bunchfirst[bunch]], xb2[bunchlast[bunch]], sectnum, 1, bunch);
 	}
 
-	// WALL RENDERING WITH LOD
+	// DRAW WALLS SECTION!
 	for (z = bunchfirst[bunch]; z >= 0; z = p2[z])
 	{
 		wallnum = thewall[z];
 		wal = &wall[wallnum];
 
-		// Calculate screen coordinates first (original behavior)
-		x1 = xb1[z]; x2 = xb2[z];
-		if (umost[x2] >= dmost[x2])
+		// Distance Calculation
+		dx = wal->x - globalposx;
+		dy = wal->y - globalposy;
+		dx = klabs(dx);
+		dy = klabs(dy);
+		wallDistance = dx + dy; // Manhattan distance
+
+		// Simple LOD: only 1 distance check at 84000 units
+		renderFrequency = 1;
+		if (wallDistance > 84000)
 		{
-			for (x = x1; x < x2; x++)
-				if (umost[x] < dmost[x]) break;
-			if (x >= x2)
-			{
-				smostwall[smostwallcnt] = z;
-				smostwalltype[smostwallcnt] = 0;
-				smostwallcnt++;
-				continue;
-			}
+			renderFrequency = 4; // Render only each 4 frames if far
 		}
 
-		// LOD LOGIC STARTS HERE - ONLY FOR WALLS
-		dx = klabs(wal->x - globalposx);
-		dy = klabs(wal->y - globalposy);
-		wallDistance = dx + dy;
+		// Decide if wall should be rendered
+		shouldRenderWall = 1;
 
-		renderFrequency = 1;
-		if (wallDistance > 32000) renderFrequency = 8;
-
-		if (totalclock == 0 || renderFrequency == 1 || (totalclock % renderFrequency) == 0)
+		// Always render on the first frame
+		if (totalclock == 0) shouldRenderWall = 1;
+		// Render according to frequency
+		else if (renderFrequency > 1)
 		{
+			if ((totalclock % renderFrequency) != 0) shouldRenderWall = 0;
+		}
+
+		// Force rendering of important walls
+		// Will nullify the efforts, thus disabled
+		//if (wal->cstat & 16) shouldRenderWall = 1; // Masked walls
+		//if (wal->cstat & 32) shouldRenderWall = 1; // White/1-way walls
+		if (searchit) shouldRenderWall = 1;        // During search operations
+
+		if (shouldRenderWall)
+		{
+			x1 = xb1[z];
+			x2 = xb2[z];
+			if (umost[x2] >= dmost[x2])
+			{
+				for (x = x1; x < x2; x++)
+					if (umost[x] < dmost[x]) break;
+				if (x >= x2)
+				{
+					smostwall[smostwallcnt] = z;
+					smostwalltype[smostwallcnt] = 0;
+					smostwallcnt++;
+					continue;
+				}
+			}
+
 			nextsectnum = wal->nextsector; nextsec = &sector[nextsectnum];
 
 			gotswall = 0;
@@ -1137,10 +1144,7 @@ drawalls_distslow(long bunch)
 						if (globalorientation & 256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 						if (gotswall == 0) { gotswall = 1; prepwall(z, wal); }
-						if (use_lqmode)
-							wallscan_LQ2X(x1, x2, uplc, dwall, swall, lwall);
-						else
-							wallscan(x1, x2, uplc, dwall, swall, lwall);
+						wallscan(x1, x2, uplc, dwall, swall, lwall);
 
 						if ((cz[2] >= cz[0]) && (cz[3] >= cz[1]))
 						{
@@ -1245,10 +1249,7 @@ drawalls_distslow(long bunch)
 						if (globalorientation & 256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 						if (gotswall == 0) { gotswall = 1; prepwall(z, wal); }
-						if (use_lqmode)
-							wallscan_LQ2X(x1, x2, uwall, dplc, swall, lwall);
-						else
-							wallscan(x1, x2, uwall, dplc, swall, lwall);
+						wallscan(x1, x2, uwall, dplc, swall, lwall);
 
 						if ((fz[2] <= fz[0]) && (fz[3] <= fz[1]))
 						{
@@ -1300,7 +1301,6 @@ drawalls_distslow(long bunch)
 							{
 								scansector(nextsectnum); break;
 							}
-
 						if (x == x2)
 						{
 							smostwallcnt = startsmostwallcnt;
@@ -1343,10 +1343,7 @@ drawalls_distslow(long bunch)
 				if (globalorientation & 256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 				if (gotswall == 0) { gotswall = 1; prepwall(z, wal); }
-				if (use_lqmode)
-					wallscan_LQ2X(x1, x2, uplc, dplc, swall, lwall);
-				else
-					wallscan(x1, x2, uplc, dplc, swall, lwall);
+				wallscan(x1, x2, uplc, dplc, swall, lwall);
 
 				for (x = x1; x <= x2; x++)
 					if (umost[x] <= dmost[x])
@@ -1364,10 +1361,10 @@ drawalls_distslow(long bunch)
 				}
 			}
 		}
-	}
-}
+	}  // End wall loop
+}  // End function
 
-// the original drawalls without slow distance optimization for 386/LQ2X modes
+// the original drawalls without slow distance optimization
 drawalls (long bunch)
 {
 	sectortype *sec, *nextsec;
@@ -1390,85 +1387,20 @@ drawalls (long bunch)
 	if ((andwstat1&3) != 3)     //draw ceilings
 	{
 		if ((sec->ceilingstat&3) == 2)
-		{
-			if ( (use_fpu) == 1 )
-			{
-				//use LQnX grouscan detailization if FPU is present - 1st time
-				grouscan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
-			}
-			else if ( (use_fpu) == 0 )
-			{
-				//use lowest grouscan detailization if FPU is not present - 1st time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
-			}
-	}
+			grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0);
 		else if ((sec->ceilingstat&1) == 0)
-		{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton ceiling drawing routine if lqmode is on
-			ceilscan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton ceiling drawing routine if lqmode is off
 			ceilscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
-			}
-		}
 		else
-		{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton parascan sky-drawing routine if lqmode is on
-			parascan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0,bunch);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton parascan sky-drawing routine if lqmode is off
 			parascan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,0,bunch);
-			}
-		}
-
 	}
 	if ((andwstat2&12) != 12)   //draw floors
 	{
 		if ((sec->floorstat&3) == 2)
-			if (use_fpu)
-			{
-				//use LQnX grouscan detailization if FPU is present - 2nd time
-				grouscan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
-			}
-			else
-			{
-				//use lowest grouscan detailization if FPU is not present - 2nd time
-				grouscan_nonfpu(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
-			}
+			grouscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1);
 		else if ((sec->floorstat&1) == 0)
-		{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton floor drawing routine if lqmode is on
-			florscan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton floor drawing routine if lqmode is off
 			florscan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum);
-			}
-		}
 		else
-		{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton parascan sky-drawing routine if lqmode is on
-			parascan_LQ2X(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1,bunch);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton parascan sky-drawing routine if lqmode is off
 			parascan(xb1[bunchfirst[bunch]],xb2[bunchlast[bunch]],sectnum,1,bunch);
-			}
-		}
 	}
 
 		//DRAW WALLS SECTION!
@@ -1568,14 +1500,7 @@ drawalls (long bunch)
 					if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 					if (gotswall == 0) { gotswall = 1; prepwall(z,wal); }
-					if ( (use_lqmode) == 1 )
-					{
-					wallscan_LQ2X(x1,x2,uplc,dwall,swall,lwall);
-					}
-					else if ( (use_lqmode) == 0 )
-					{
 					wallscan(x1,x2,uplc,dwall,swall,lwall);
-					}
 
 					if ((cz[2] >= cz[0]) && (cz[3] >= cz[1]))
 					{
@@ -1680,15 +1605,8 @@ drawalls (long bunch)
 					if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 					if (gotswall == 0) { gotswall = 1; prepwall(z,wal); }
-					if ( (use_lqmode) == 1 )
-					{
-					wallscan_LQ2X(x1,x2,uwall,dplc,swall,lwall);
-					}
-					else if ( (use_lqmode) == 0 )
-					{
 					wallscan(x1,x2,uwall,dplc,swall,lwall);
-					}
-					
+
 					if ((fz[2] <= fz[0]) && (fz[3] <= fz[1]))
 					{
 						for(x=x1;x<=x2;x++)
@@ -1782,15 +1700,8 @@ drawalls (long bunch)
 			if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
 
 			if (gotswall == 0) { gotswall = 1; prepwall(z,wal); }
-
-			if ( (use_lqmode) == 1 )
-			{
-			wallscan_LQ2X(x1,x2,uplc,dplc,swall,lwall);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
 			wallscan(x1,x2,uplc,dplc,swall,lwall);
-			}
+
 			for(x=x1;x<=x2;x++)
 				if (umost[x] <= dmost[x])
 					{ umost[x] = 1; dmost[x] = 0; numhits--; }
@@ -1806,8 +1717,6 @@ drawalls (long bunch)
 		}
 	}
 }
-
-
 
 prepwall(long z, walltype *wal)
 {
@@ -1892,8 +1801,30 @@ prepwall(long z, walltype *wal)
 // CEILSCAN functions START
 //======================================================================================
 
-
 ceilscan (long x1, long x2, long sectnum)
+{
+	char ceilscanstarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) ceilscanstarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_lqmode)
+	{
+	// in low quality mode (px), use HQ version for a short while then switch
+		if       (!ceilscanstarted)     ceilscan_HQ(x1, x2, sectnum);
+		else if   (ceilscanstarted)   ceilscan_LQ2X(x1, x2, sectnum);
+	}
+	else
+	{
+	// in high quality mode, use the LQ function for a short while then switch
+		if       (!ceilscanstarted)   ceilscan_LQ2X(x1, x2, sectnum);
+		else if   (ceilscanstarted)     ceilscan_HQ(x1, x2, sectnum);
+	}
+}
+
+// high quality version
+ceilscan_HQ (long x1, long x2, long sectnum)
 {
 	long i, j, ox, oy, x, y1, y2, twall, bwall;
 	long portalfovfactor; // Local storage for the scaling factor
@@ -2073,7 +2004,7 @@ ceilscan (long x1, long x2, long sectnum)
 	faketimerhandler();
 }
 
-
+// low quality version
 ceilscan_LQ2X (long x1, long x2, long sectnum)
 {
     long i, j, ox, oy, x, y1, y2, twall, bwall;
@@ -2167,8 +2098,9 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
     globaly1 = (-globalx1-globaly1)*halfxdimen;
     globalx2 = (globalx2-globaly2)*halfxdimen;
 
+    // Первичная настройка SMC для обычных потолков
     sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
-
+    
     globalx2 += globaly2*(x1-1);
     globaly1 += globalx1*(x1-1);
     globalx1 = mulscale16(globalx1,globalzd);
@@ -2176,7 +2108,10 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
     globaly1 = mulscale16(globaly1,globalzd);
     globaly2 = mulscale16(globaly2,globalzd);
     globvis = klabs(mulscale10(globvis,globalzd));
-
+    
+    // Div0 protection
+    if (pxlzefctr < 1) pxlzefctr = 1;
+    
     if (!(globalorientation&0x180))
     {
         y1 = umost[x1]; y2 = y1;
@@ -2190,8 +2125,7 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
                     while (y1 < y2-1)
                     {
                         y1++;
-                        if (y1 % pxlzefctr == 0)
-                            hline(x-1, y1);
+                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
                     }
                     y1 = twall;
                 }
@@ -2200,16 +2134,14 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
                     while (y1 < twall)
                     {
                         y1++;
-                        if (y1 % pxlzefctr == 0)
-                            hline(x-1, y1);
+                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
                     }
                     while (y1 > twall) lastx[y1--] = x;
                 }
                 while (y2 > bwall)
                 {
                     y2--;
-                    if (y2 % pxlzefctr == 0)
-                        hline(x-1, y2);
+                    if (y2 % pxlzefctr == 0) hline(x-1, y2);
                 }
                 while (y2 < bwall) lastx[y2++] = x;
             }
@@ -2218,8 +2150,7 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < y2-1)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        hline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) hline(x-1, y1);
                 }
                 if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
                 y1 = umost[x+1]; y2 = y1;
@@ -2229,13 +2160,20 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
         while (y1 < y2-1)
         {
             y1++;
-            if (y1 % pxlzefctr == 0)
-                hline(x2, y1);
+            if (y1 % pxlzefctr == 0) hline(x2, y1);
         }
         faketimerhandler();
         return;
     }
-
+    
+    // this switch saves it from horizontal sprites interference
+    switch(globalorientation&0x180)
+    {
+        case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+        case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+        case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+    }
+    
     y1 = umost[x1]; y2 = y1;
     for(x=x1;x<=x2;x++)
     {
@@ -2247,8 +2185,7 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < y2-1)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        slowhline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
                 }
                 y1 = twall;
             }
@@ -2257,16 +2194,14 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < twall)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        slowhline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
                 }
                 while (y1 > twall) lastx[y1--] = x;
             }
             while (y2 > bwall)
             {
                 y2--;
-                if (y2 % pxlzefctr == 0)
-                    slowhline(x-1, y2);
+                if (y2 % pxlzefctr == 0) slowhline(x-1, y2);
             }
             while (y2 < bwall) lastx[y2++] = x;
         }
@@ -2275,19 +2210,17 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
             while (y1 < y2-1)
             {
                 y1++;
-                if (y1 % pxlzefctr == 0)
-                    slowhline(x-1, y1);
+                if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
             }
             if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
             y1 = umost[x+1]; y2 = y1;
-        }
+            }
         globalx2 += globaly2; globaly1 += globalx1;
     }
     while (y1 < y2-1)
     {
         y1++;
-        if (y1 % pxlzefctr == 0)
-            slowhline(x2, y1);
+        if (y1 % pxlzefctr == 0) slowhline(x2, y1);
     }
     faketimerhandler();
 }
@@ -2303,8 +2236,29 @@ ceilscan_LQ2X (long x1, long x2, long sectnum)
 // FLORSCAN functions START
 //======================================================================================
 
-
 florscan (long x1, long x2, long sectnum)
+{
+	char florscanstarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) florscanstarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_lqmode)
+	{
+	// in low quality mode (px), use HQ version for a short while then switch
+		if       (!florscanstarted)     florscan_HQ(x1, x2, sectnum);
+		else if   (florscanstarted)   florscan_LQ2X(x1, x2, sectnum);
+	}
+	else
+	{
+	// in high quality mode, use the LQ function for a short while then switch
+		if       (!florscanstarted)   florscan_LQ2X(x1, x2, sectnum);
+		else if   (florscanstarted)     florscan_HQ(x1, x2, sectnum);
+	}
+}
+
+florscan_HQ (long x1, long x2, long sectnum)
 {
 	long i, j, ox, oy, x, y1, y2, twall, bwall;
 	long portalfovfactor; // Local scale factor for portal zoom
@@ -2554,8 +2508,6 @@ florscan_LQ2X (long x1, long x2, long sectnum)
         globaly1 = mulscale16(globaly1, portalfovfactor);
         globaly2 = mulscale16(globaly2, portalfovfactor);
     }
-    // --- FLOOR PORTAL FOV ZOOM FINISH ---
-
     globalxshift = (8-(picsiz[globalpicnum]&15));
     globalyshift = (8-(picsiz[globalpicnum]>>4));
     if (globalorientation&8) { globalxshift++; globalyshift++; }
@@ -2576,6 +2528,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
     globaly1 = (-globalx1-globaly1)*halfxdimen;
     globalx2 = (globalx2-globaly2)*halfxdimen;
 
+    // Regular floors setup (without transparency)
     sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
 
     globalx2 += globaly2*(x1-1);
@@ -2585,6 +2538,9 @@ florscan_LQ2X (long x1, long x2, long sectnum)
     globaly1 = mulscale16(globaly1,globalzd);
     globaly2 = mulscale16(globaly2,globalzd);
     globvis = klabs(mulscale10(globvis,globalzd));
+
+    // Safe coeff (div0 protection)
+    if (pxlzefctr < 1) pxlzefctr = 1;
 
     if (!(globalorientation&0x180))
     {
@@ -2599,8 +2555,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
                     while (y1 < y2-1)
                     {
                         y1++;
-                        if (y1 % pxlzefctr == 0)
-                            hline(x-1, y1);
+                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
                     }
                     y1 = twall;
                 }
@@ -2609,16 +2564,14 @@ florscan_LQ2X (long x1, long x2, long sectnum)
                     while (y1 < twall)
                     {
                         y1++;
-                        if (y1 % pxlzefctr == 0)
-                            hline(x-1, y1);
+                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
                     }
                     while (y1 > twall) lastx[y1--] = x;
                 }
                 while (y2 > bwall)
                 {
                     y2--;
-                    if (y2 % pxlzefctr == 0)
-                        hline(x-1, y2);
+                    if (y2 % pxlzefctr == 0) hline(x-1, y2);
                 }
                 while (y2 < bwall) lastx[y2++] = x;
             }
@@ -2627,8 +2580,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < y2-1)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        hline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) hline(x-1, y1);
                 }
                 if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
                 y1 = max(dplc[x+1],umost[x+1]); y2 = y1;
@@ -2638,11 +2590,18 @@ florscan_LQ2X (long x1, long x2, long sectnum)
         while (y1 < y2-1)
         {
             y1++;
-            if (y1 % pxlzefctr == 0)
-                hline(x2, y1);
+            if (y1 % pxlzefctr == 0) hline(x2, y1);
         }
         faketimerhandler();
         return;
+    }
+
+    // This block restores "brains" of assembler for floors after flat horizontal sprites were processed
+    switch(globalorientation&0x180)
+    {
+        case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+        case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+        case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
     }
 
     y1 = max(dplc[x1],umost[x1]); y2 = y1;
@@ -2656,8 +2615,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < y2-1)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        slowhline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
                 }
                 y1 = twall;
             }
@@ -2666,16 +2624,14 @@ florscan_LQ2X (long x1, long x2, long sectnum)
                 while (y1 < twall)
                 {
                     y1++;
-                    if (y1 % pxlzefctr == 0)
-                        slowhline(x-1, y1);
+                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
                 }
                 while (y1 > twall) lastx[y1--] = x;
             }
             while (y2 > bwall)
             {
                 y2--;
-                if (y2 % pxlzefctr == 0)
-                    slowhline(x-1, y2);
+                if (y2 % pxlzefctr == 0) slowhline(x-1, y2);
             }
             while (y2 < bwall) lastx[y2++] = x;
         }
@@ -2684,8 +2640,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
             while (y1 < y2-1)
             {
                 y1++;
-                if (y1 % pxlzefctr == 0)
-                    slowhline(x-1, y1);
+                if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
             }
             if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
             y1 = max(dplc[x+1],umost[x+1]); y2 = y1;
@@ -2695,8 +2650,7 @@ florscan_LQ2X (long x1, long x2, long sectnum)
     while (y1 < y2-1)
     {
         y1++;
-        if (y1 % pxlzefctr == 0)
-            slowhline(x2, y1);
+        if (y1 % pxlzefctr == 0) slowhline(x2, y1);
     }
     faketimerhandler();
 }
@@ -2714,9 +2668,29 @@ florscan_LQ2X (long x1, long x2, long sectnum)
 
 
 
+wallscan (long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
+{
+	static char wallscanstarted = 0;
 
+	// Check once on the game start
+	if (totalclock > 1) wallscanstarted = 1;
 
-wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_lqmode)
+	{
+	// in low quality mode (px), use HQ version for a short while then switch
+		if       (!wallscanstarted)     wallscan_HQ(x1, x2, uwal, dwal, swal, lwal);
+		else if   (wallscanstarted)   wallscan_LQ2X(x1, x2, uwal, dwal, swal, lwal);
+	}
+	else
+	{
+	// in high quality mode, use the LQ function for a short while then switch
+		if       (!wallscanstarted)   wallscan_LQ2X(x1, x2, uwal, dwal, swal, lwal);
+		else if   (wallscanstarted)     wallscan_HQ(x1, x2, uwal, dwal, swal, lwal);
+	}
+}
+
+wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 {
 	long i, x, xnice, ynice, fpalookup, shade;
 	long y1ve[4], y2ve[4], u4, d4, dax, z, tsizx, tsizy;
@@ -3755,13 +3729,9 @@ loadtables()
 		initksqrt();
 
 		for(i=0;i<2048;i++) reciptable[i] = divscale30(2048L,i+2048);
-		if (!use_fpu)
-		{
-                        genreciptabletextureint();
-                        genreciptableshadeint();
-		}
+		genreciptabletextureint();
+		genreciptableshadeint();
 
-		
 		if ((fil = kopen4load("tables.dat",0)) != -1)
 		{
 			kread(fil,sintable,2048*2);
@@ -4061,7 +4031,7 @@ nextpage()
 					if ( (use_lqmode) == 1 )
 					{
 					//use low definiton hud-sprites drawing function if lqmode is on
-					dorotatesprite_LQ2X(per->sx,per->sy,per->z,per->a,per->picnum,
+					dorotatespritelq(per->sx,per->sy,per->z,per->a,per->picnum,
 										per->dashade,per->dapalnum,per->dastat,
 										per->cx1,per->cy1,per->cx2,per->cy2);
 					}
@@ -4116,7 +4086,7 @@ nextpage()
 					if ( (use_lqmode) == 1 )
 					{
 					//use low definiton hud-sprites drawing function if lqmode is on
-					dorotatesprite_LQ2X(per->sx,per->sy,per->z,per->a,per->picnum,
+					dorotatespritelq(per->sx,per->sy,per->z,per->a,per->picnum,
 										per->dashade,per->dapalnum,per->dastat,
 										per->cx1,per->cy1,per->cx2,per->cy2);
 					}
@@ -4816,19 +4786,7 @@ drawmasks()
 	{
 		j = maskwall[maskwallcnt-1];
 		if (spritewallfront(tspriteptr[spritesortcnt-1],(long)thewall[j]) == 0)
-		{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton drawsprite function when lqmode is on
-			drawsprite_LQ2X(--spritesortcnt);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton drawsprite function when lqmode is off
 			drawsprite(--spritesortcnt);
-			}
-		}
-
 		else
 		{
 				//Check to see if any sprites behind the masked wall...
@@ -4838,18 +4796,7 @@ drawmasks()
 				if ((xb1[j] <= (spritesx[i]>>8)) && ((spritesx[i]>>8) <= xb2[j]))
 					if (spritewallfront(tspriteptr[i],(long)thewall[j]) == 0)
 					{
-					    {
-						if ( (use_lqmode) == 1 )
-						{
-						//use low definiton drawsprite function when lqmode is on
-						drawsprite_LQ2X(i);
-						}
-						else if ( (use_lqmode) == 0 )
-						{
-						//use high definiton drawsprite function when lqmode is off
 						drawsprite(i);
-						}
-					    }
 						tspriteptr[i]->owner = -1;
 						k = i;
 						gap++;
@@ -4874,26 +4821,8 @@ drawmasks()
 			drawmaskwall(--maskwallcnt);
 		}
 	}
-	while (spritesortcnt > 0)
-	{
-	    	{
-			if ( (use_lqmode) == 1 )
-			{
-			//use low definiton drawsprite function when lqmode is on
-			drawsprite_LQ2X(--spritesortcnt);
-			}
-			else if ( (use_lqmode) == 0 )
-			{
-			//use high definiton drawsprite function when lqmode is off
-			drawsprite(--spritesortcnt);
-			}
-		}
-	}
-	
-	while (maskwallcnt > 0)
-	{
-	    drawmaskwall(--maskwallcnt);
-	}
+	while (spritesortcnt > 0) drawsprite(--spritesortcnt);
+	while (maskwallcnt > 0) drawmaskwall(--maskwallcnt);
 }
 
 drawmaskwall(short damaskwallcnt)
@@ -5009,8 +4938,29 @@ drawmaskwall(short damaskwallcnt)
 // drawsprite functions - START
 //=============================================================================
 
-
 drawsprite (long snum)
+{
+	char drawspritestarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) drawspritestarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_lqmode)
+	{
+	// in low quality mode (px), use HQ version for a short while then switch
+		if       (!drawspritestarted)     drawsprite_HQ(snum);
+		else if   (drawspritestarted)   drawsprite_LQ2X(snum);
+	}
+	else
+	{
+	// in high quality mode, use the LQ function for a short while then switch
+		if       (!drawspritestarted)   drawsprite_LQ2X(snum);
+		else if   (drawspritestarted)     drawsprite_HQ(snum);
+	}
+}
+
+drawsprite_HQ (long snum)
 {
 	spritetype *tspr;
 	sectortype *sec;
@@ -6564,10 +6514,15 @@ drawsprite_LQ2X (long snum)
 				searchstat = 3; searchit = 1;
 			}
 
-		if ((cstat&2) == 0)
-			maskwallscan_LQ2X(xb1[MAXWALLSB-1],xb2[MAXWALLSB-1],uwall,dwall,swall,lwall);
-		else
-			transmaskwallscan_LQ2X(xb1[MAXWALLSB-1],xb2[MAXWALLSB-1]);
+	        if ((cstat&2) == 0)
+	        {
+	            maskwallscan_LQ2X(xb1[MAXWALLSB-1],xb2[MAXWALLSB-1],uwall,dwall,swall,lwall);
+	        }
+	        else
+	        {
+	            if (cstat&512) settransreverse(); else settransnormal();
+	            transmaskwallscan_LQ2X(xb1[MAXWALLSB-1],xb2[MAXWALLSB-1]);
+	        }
 	}
 	else if ((cstat&48) == 32)
 	{
@@ -7260,7 +7215,7 @@ ceilspritescan (long x1, long x2)
 		if ( (use_lqmode) == 1 )
 		{
 		//use low definiton sprite-ceiling drawing routine if lqmode is on
-		ceilspritehline_LQ2X(x2, y1);
+		ceilspritehlinelq(x2, y1);
 		}
 		else if ( (use_lqmode) == 0 )
 		{
@@ -7359,7 +7314,7 @@ ceilspritehline (long x2, long y)
 }
 
 //unused but let's keep it here for a while
-ceilspritehline_LQ2X (long x2, long y)
+ceilspritehlinelq (long x2, long y)
 {
     long x1, v, bx, by;
     static long pxlzefctr_counter = 0; // Make pxlzefctr_counter static
@@ -9671,7 +9626,7 @@ rotatesprite (long sx, long sy, long z, short a, short picnum, signed char dasha
 		if ( (use_lqmode) == 1 )
 		{
 		//use low definiton hud-sprites drawing function if lqmode is on
-		dorotatesprite_LQ2X(sx,sy,z,a,picnum,dashade,dapalnum,dastat,cx1,cy1,cx2,cy2);
+		dorotatespritelq(sx,sy,z,a,picnum,dashade,dapalnum,dastat,cx1,cy1,cx2,cy2);
 		}
 		else if ( (use_lqmode) == 0 )
 		{
@@ -10135,7 +10090,7 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 }
 
 
-dorotatesprite_LQ2X (long sx, long sy, long z, short a, short picnum, signed char dashade, char dapalnum, char dastat, long cx1, long cy1, long cx2, long cy2)
+dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char dashade, char dapalnum, char dastat, long cx1, long cy1, long cx2, long cy2)
 {
 	// Variables declared at the top
 	long cosang, sinang, v, nextv, dax1, dax2, oy, bx, by, ny1, ny2;
@@ -11873,10 +11828,32 @@ wallmost(short *mostbuf, long w, long sectnum, char dastat)
 	return(bad);
 }
 
+grouscan (long dax1, long dax2, long sectnum, char dastat)
+{
+	char grouscanstarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) grouscanstarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_fpu)
+	{
+	// in original fpu mode, use int version for a short while then switch
+		if       (!grouscanstarted)   grouscanint_LQ2X(dax1, dax2, sectnum, dastat);
+		else if   (grouscanstarted)   grouscanfpu_LQ2X(dax1, dax2, sectnum, dastat);
+	}
+	else
+	{
+	// in intger mode, use the fpu function for a short while then switch
+		if       (!grouscanstarted)   grouscanfpu_LQ2X(dax1, dax2, sectnum, dastat);
+		else if   (grouscanstarted)   grouscanint_LQ2X(dax1, dax2, sectnum, dastat);
+	}
+}
+
 #define BITSOFPRECISION 3  //Don't forget to change this in A.ASM also!
 // 1 = full detail, 2 = half detail, 4 = quarter detail, etc.
 // uses our global quality variable "pxlzefctr"
-grouscan_LQ2X (long dax1, long dax2, long sectnum, char dastat)
+grouscanfpu_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
 	long daslope, dasqr;
@@ -12157,7 +12134,7 @@ void slopevlin2relativeC(long p, long start_z, long slopaloffs, long cnt, long b
 }
 
 char slopeisfar; //for asm slopevlin2
-grouscan_nonfpu (long dax1, long dax2, long sectnum, char dastat)
+grouscanint_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
 	long daslope, dasqr;
@@ -12342,8 +12319,29 @@ getpalookup(long davis, long dashade)
 // parascan (parallax sky drawing) functions START
 //=======================================================================
 
-
 parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
+{
+	char parascanstarted = 0;
+
+	// Check once on the game start
+	if (totalclock > 1) parascanstarted = 1;
+
+	// we want to call both versions to preserve savegame-demo compatibility
+	if (use_lqmode)
+	{
+	// in low quality mode (px), use HQ version for a short while then switch
+		if       (!parascanstarted)   parascan_HQ(dax1, dax2, sectnum, dastat, bunch);
+		else if   (parascanstarted)   parascan_LQ2X(dax1, dax2, sectnum, dastat, bunch);
+	}
+	else
+	{
+	// in high quality mode, use the LQ function for a short while then switch
+		if       (!parascanstarted)   parascan_LQ2X(dax1, dax2, sectnum, dastat, bunch);
+		else if   (parascanstarted)   parascan_HQ(dax1, dax2, sectnum, dastat, bunch);
+	}
+}
+
+parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 {
 	sectortype *sec;
 	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak;

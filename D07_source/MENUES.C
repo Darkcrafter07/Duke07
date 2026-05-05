@@ -36,6 +36,15 @@ short sh,onbar,buttonstat,deletespot;
 short last_zero,last_fifty,last_threehundred = 0;
 static char fileselect = 1, menunamecnt, menuname[256][17], curpath[80], menupath[80];
 
+// sky vertical look and scrolling according to player absolute height
+extern long g_lastHorizOffset;
+extern long g_lastProcessedTick;
+extern long g_skyPanBaseCeiling;
+extern long g_skyPanBaseFloor;
+extern char g_skyPanInitialized;
+extern char g_readyToPan;
+extern long g_skyycuroffs;
+
 // CTW - REMOVED
 /* Error codes */
 /*
@@ -496,6 +505,16 @@ loadplayer(signed char spot)
      waitforeverybody();
 
      resettimevars();
+
+     // reset sky vertical look and scrolling
+     // according to player absolute height
+     g_lastHorizOffset = 0;
+     g_lastProcessedTick = -1;
+     g_skyPanBaseCeiling = 0;
+     g_skyPanBaseFloor = 0;
+     g_skyPanInitialized = 0;
+     g_readyToPan = 0;
+     g_skyycuroffs = 0;
 
      return(0);
 }
