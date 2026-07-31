@@ -52,14 +52,14 @@ unsigned char tempbuf[2048], packbuf[576];
 char buf[80];
 
 short camsprite;
-short portalsprite0 = -1; short portalsprite1 = -1; short portalsprite2 = -1; short portalsprite3 = -1;
-short portalsprite4 = -1; short portalsprite5 = -1; short portalsprite6 = -1; short portalsprite7 = -1;
-short portalsprite8 = -1; short portalsprite9 = -1; short portalsprite10 = -1; short portalsprite11 = -1;
-short portalsprite12 = -1; short portalsprite13 = -1; short portalsprite14 = -1; short portalsprite15 = -1;
-short portalsprite16 = -1; short portalsprite17 = -1; short portalsprite18 = -1; short portalsprite19 = -1;
-short portalsprite20 = -1; short portalsprite21 = -1; short portalsprite22 = -1; short portalsprite23 = -1;
-short portalsprite24 = -1; short portalsprite25 = -1; short portalsprite26 = -1; short portalsprite27 = -1;
-short portalsprite28 = -1; short portalsprite29 = -1; short portalsprite30 = -1; short portalsprite31 = -1;
+char portalsprite0 = -1; char portalsprite1 = -1; char portalsprite2 = -1; char portalsprite3 = -1;
+char portalsprite4 = -1; char portalsprite5 = -1; char portalsprite6 = -1; char portalsprite7 = -1;
+char portalsprite8 = -1; char portalsprite9 = -1; char portalsprite10 = -1; char portalsprite11 = -1;
+char portalsprite12 = -1; char portalsprite13 = -1; char portalsprite14 = -1; char portalsprite15 = -1;
+char portalsprite16 = -1; char portalsprite17 = -1; char portalsprite18 = -1; char portalsprite19 = -1;
+char portalsprite20 = -1; char portalsprite21 = -1; char portalsprite22 = -1; char portalsprite23 = -1;
+char portalsprite24 = -1; char portalsprite25 = -1; char portalsprite26 = -1; char portalsprite27 = -1;
+char portalsprite28 = -1; char portalsprite29 = -1; char portalsprite30 = -1; char portalsprite31 = -1;
 short mirrorwall[64], mirrorsector[64], mirrorcnt;
 
 int current_menu;

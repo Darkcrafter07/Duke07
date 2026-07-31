@@ -2796,26 +2796,25 @@ void displayrooms(short snum,long smoothratio)
         cang = hittype[ud.camerasprite].tempang+mulscale16((long)(((s->ang+1024-hittype[ud.camerasprite].tempang)&2047)-1024),smoothratio);
 
         // PORTAL: render portal only if we're NOT in the portal rendering mode
-        if ( portalsprite0 >= 0 && rendering_portal == 0 )
+        if ( rendering_portal == 0 )
         {
-            rendering_portal = 1; // enter portal rendering mode
-            se40codeportal0(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal1(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal2(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal3(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal4(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal5(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal6(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal7(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal8(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal9(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal10(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal11(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal12(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal13(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal14(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            se40codeportal15(s->x, s->y, s->z, cang, s->yvel, smoothratio);
-            rendering_portal = 0; // exit portal rendering mode
+            // Execute active portals execution check independently to avoid 386 CPU stalls
+            if (portalsprite0 >= 0)  { se40codeportal0(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite1 >= 0)  { se40codeportal1(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite2 >= 0)  { se40codeportal2(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite3 >= 0)  { se40codeportal3(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite4 >= 0)  { se40codeportal4(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite5 >= 0)  { se40codeportal5(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite6 >= 0)  { se40codeportal6(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite7 >= 0)  { se40codeportal7(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite8 >= 0)  { se40codeportal8(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite9 >= 0)  { se40codeportal9(s->x, s->y, s->z, cang, s->yvel, smoothratio);  }
+            if (portalsprite10 >= 0) { se40codeportal10(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
+            if (portalsprite11 >= 0) { se40codeportal11(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
+            if (portalsprite12 >= 0) { se40codeportal12(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
+            if (portalsprite13 >= 0) { se40codeportal13(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
+            if (portalsprite14 >= 0) { se40codeportal14(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
+            if (portalsprite15 >= 0) { se40codeportal15(s->x, s->y, s->z, cang, s->yvel, smoothratio); }
         }
 
         if (rendering_portal == 0) // don't draw standard security cameras inside too
@@ -2881,66 +2880,51 @@ void displayrooms(short snum,long smoothratio)
           }
 
           if ( (snum == myconnectindex) && (numplayers > 1) )
-                  {
+          {
                                 cposx = omyx+mulscale16((long)(myx-omyx),smoothratio);
                                 cposy = omyy+mulscale16((long)(myy-omyy),smoothratio);
                                 cposz = omyz+mulscale16((long)(myz-omyz),smoothratio);
                                 cang = omyang+mulscale16((long)(((myang+1024-omyang)&2047)-1024),smoothratio);
                                 choriz = omyhoriz+omyhorizoff+mulscale16((long)(myhoriz+myhorizoff-omyhoriz-omyhorizoff),smoothratio);
                                 sect = mycursectnum;
-                  }
-                  else
-                  {
+          }
+          else
+          {
                                 cposx = p->oposx+mulscale16((long)(p->posx-p->oposx),smoothratio);
                                 cposy = p->oposy+mulscale16((long)(p->posy-p->oposy),smoothratio);
                                 cposz = p->oposz+mulscale16((long)(p->posz-p->oposz),smoothratio);
                                 cang = p->oang+mulscale16((long)(((p->ang+1024-p->oang)&2047)-1024),smoothratio);
                                 choriz = p->ohoriz+p->ohorizoff+mulscale16((long)(p->horiz+p->horizoff-p->ohoriz-p->ohorizoff),smoothratio);
-                  }
-                  cang += p->look_ang;
+          }
+          cang += p->look_ang;
 
-	          // PORTAL: render portal ONLY if we're NOT in recursion - start
-	          if (portalsprite0 >= 0 && rendering_portal == 0)
-	          {
-	              rendering_portal = 1;
-	              se40codeportal0(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal1(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal2(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal3(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal4(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal5(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal6(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal7(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal8(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal9(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal10(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal11(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal12(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal13(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal14(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              se40codeportal15(cposx, cposy, cposz, cang, choriz, smoothratio);
-	              rendering_portal = 0;
+          // PORTAL: render portal ONLY if we're NOT in recursion - start
+          if (rendering_portal == 0)
+          {
+              if (portalsprite0 >= 0)  { se40codeportal0(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite1 >= 0)  { se40codeportal1(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite2 >= 0)  { se40codeportal2(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite3 >= 0)  { se40codeportal3(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite4 >= 0)  { se40codeportal4(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite5 >= 0)  { se40codeportal5(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite6 >= 0)  { se40codeportal6(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite7 >= 0)  { se40codeportal7(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite8 >= 0)  { se40codeportal8(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite9 >= 0)  { se40codeportal9(cposx, cposy, cposz, cang, choriz, smoothratio);  }
+              if (portalsprite10 >= 0) { se40codeportal10(cposx, cposy, cposz, cang, choriz, smoothratio); }
+              if (portalsprite11 >= 0) { se40codeportal11(cposx, cposy, cposz, cang, choriz, smoothratio); }
+              if (portalsprite12 >= 0) { se40codeportal12(cposx, cposy, cposz, cang, choriz, smoothratio); }
+              if (portalsprite13 >= 0) { se40codeportal13(cposx, cposy, cposz, cang, choriz, smoothratio); }
+              if (portalsprite14 >= 0) { se40codeportal14(cposx, cposy, cposz, cang, choriz, smoothratio); }
+              if (portalsprite15 >= 0) { se40codeportal15(cposx, cposy, cposz, cang, choriz, smoothratio); }
 
-	              // --- portal low-detail mode and tile conflict fix start ---
-	              if (setviewcnt > 0)
-	              {
-	                  // get parent tile dimensions from stack
-	                  p_xsiz = bakxsiz[setviewcnt-1]; p_ysiz = bakysiz[setviewcnt-1];
-
-	                  // restore pitch and ylookup
-	                  setvlinebpl(p_ysiz);
-	                  for(i=0, j=0; i<=p_xsiz; i++)
-	                  {
-	                      ylookup[i] = j; j += p_ysiz;
-	                  }
-	              }
-	              // --- portal low-detail mode and tile conflict fix start ---
-	          }
-	          // PORTAL: render portal ONLY if we're NOT in recursion - finish
-	          else if (camsprite >= 0 && rendering_portal == 0)
-	          {
-	              se40code(cposx, cposy, cposz, cang, choriz, smoothratio);
-	          }
+              // --- portal low-detail mode and tile conflict fix start ---
+          }
+          // PORTAL: render portal ONLY if we're NOT in recursion - finish
+          else if (camsprite >= 0 && rendering_portal == 0)
+          {
+              se40code(cposx, cposy, cposz, cang, choriz, smoothratio);
+          }
 
                   if (p->newowner >= 0)
                   {
@@ -7484,223 +7468,6 @@ void Logo(void)
     palto(0,0,0,0);
     clearview(0L);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//=======================================================
-//
-// LOGO animation playback split (to save on RAM) - START
-//
-//=======================================================
-
-void Logo_split(void)
-{
-    short i,j,soundanm;
-
-    soundanm = 0;
-
-    ready2send = 0;
-
-    KB_FlushKeyboardQueue();
-
-    setview(0,0,xdim-1,ydim-1);
-    clearview(0L);
-    palto(0,0,0,0);
-
-    flushperms();
-    nextpage();
-
-    MUSIC_StopSong();
-
-#ifdef VOLUMEALL
-
-    if(!KB_KeyWaiting() && nomorelogohack == 0)
-    {
-        getpackets();
-        //We split logo animation into 4, 4mb chunks anm files
-        //because 3DRealms animlib and playanm implementations
-        //need to load the entire 12mb anm file into RAM which
-        //is an unaffordable luxury on 8mb RAM machines causing
-        //the game to exit with an error: "BUFFER TOO BIG TO FIT IN CACHE".
-        //I tried for 2 months to create a streamable implementation
-        //but didn't succeed. Take a look at anim2pcx sources and
-        //"play.exe" utility which plays the same 12mb file on a machine
-        //with 386sx, 2mb like it's nothing. The original 3D realms didn't
-        //even free animations from RAM afer they were played because using
-        //3rd party's mact386.lib's zone (iD Software's Doom zone memory thing)
-        //is not compatible with Duke3D's cache1d.c. Using "suckcahe" like
-        //it's done now works - done that both in game.c after each animation
-        //played and in menues.c "playanm" functions. Mact386.lib's animlib
-        //functions removed from it so they don't conflict with Duke's animlib
-        //21-24 - are animation and sound IDs
-        //can be found in "playanm_split" function in menues.c
-        
-        
-        playanm_split("logo1.anm",21);
-        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
-        {
-             goto END_SEQUENCE;
-        }
-
-        playanm_split("logo2.anm",22);
-        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
-        {
-             goto END_SEQUENCE;
-        }
-
-        playanm_split("logo3.anm",23);
-        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
-        {
-             goto END_SEQUENCE;
-        }
-
-        playanm_split("logo4.anm",24);
-        if ( (KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)) )
-        {
-             goto END_SEQUENCE;
-        }
-        
-        
-        KB_FlushKeyboardQueue();
-    }
-
-END_SEQUENCE:
-    //yeah get rid of animation in the ram after the playback
-    //cause it gets you less probability to encounter an error
-    suckcache(anim); // Clean up animation cache
-    clearview(0L);
-    palto(0,0,0,63);
-    nextpage();
-
-    //After skipping animation, flush keys and show other parts
-    KB_FlushKeyboardQueue(); // Stop holding the key pressed (unpress)
-
-#endif
-
-
-
-    PlayMusic(&env_music_fn[0][0]);
-    for(i=0;i<64;i+=7) palto(0,0,0,i);
-    ps[myconnectindex].palette = drealms;
-    palto(0,0,0,63);
-    rotatesprite(0,0,65536L,0,DREALMS,0,0,2+8+16+64, 0,0,xdim-1,ydim-1);
-    nextpage(); for(i=63;i>0;i-=7) palto(0,0,0,i);
-    totalclock = 0;
-    while( totalclock < (120*7) && !KB_KeyWaiting() )
-        getpackets();
-
-    for(i=0;i<64;i+=7) palto(0,0,0,i);
-    clearview(0L);
-    nextpage();
-
-    ps[myconnectindex].palette = titlepal;
-    flushperms();
-    rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
-    KB_FlushKeyboardQueue();
-    nextpage();
-    for(i=63;i>0;i-=7) palto(0,0,0,i);
-    totalclock = 0;
-
-    while(totalclock < (860+120) && !KB_KeyWaiting())
-    {
-        rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
-
-        if( totalclock > 120 && totalclock < (120+60) )
-        {
-            if(soundanm == 0)
-            {
-                soundanm = 1;
-                sound(PIPEBOMB_EXPLODE);
-            }
-            rotatesprite(160<<16,104<<16,(totalclock-120)<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
-        }
-        else if( totalclock >= (120+60) )
-            rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
-
-        if( totalclock > 220 && totalclock < (220+30) )
-        {
-            if( soundanm == 1)
-            {
-                soundanm = 2;
-                sound(PIPEBOMB_EXPLODE);
-            }
-
-            rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
-            rotatesprite(160<<16,(129)<<16,(totalclock - 220 )<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
-        }
-        else if( totalclock >= (220+30) )
-            rotatesprite(160<<16,(129)<<16,30<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
-
-        if( totalclock >= 280 && totalclock < 395 )
-        {
-            rotatesprite(160<<16,(151)<<16,(410-totalclock)<<12,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
-            if(soundanm == 2)
-            {
-                soundanm = 3;
-                sound(FLY_BY);
-            }
-        }
-        else if( totalclock >= 395 )
-        {
-            if(soundanm == 3)
-            {
-                soundanm = 4;
-                sound(PIPEBOMB_EXPLODE);
-            }
-            rotatesprite(160<<16,(151)<<16,30<<11,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
-        }
-
-        getpackets();
-        nextpage();
-    }
-
-    if(ud.multimode > 1)
-    {
-        rotatesprite(0,0,65536L,0,BETASCREEN,0,0,2+8+16+64,0,0,xdim-1,ydim-1);
-
-        rotatesprite(160<<16,(104)<<16,60<<10,0,DUKENUKEM,0,0,2+8,0,0,xdim-1,ydim-1);
-        rotatesprite(160<<16,(129)<<16,30<<11,0,THREEDEE,0,0,2+8,0,0,xdim-1,ydim-1);
-        rotatesprite(160<<16,(151)<<16,30<<11,0,PLUTOPAKSPRITE+1,0,0,2+8,0,0,xdim-1,ydim-1);
-
-        gametext(160,190,"WAITING FOR PLAYERS",14,2);
-        nextpage();
-    }
-
-    waitforeverybody();
-
-    flushperms();
-    clearview(0L);
-    nextpage();
-
-    ps[myconnectindex].palette = palette;
-    sound(NITEVISION_ONOFF);
-
-    palto(0,0,0,0);
-    clearview(0L);
-}
-
-//=======================================================
-//
-// LOGO animation playback split (to save on RAM) - end
-//
-//=======================================================
-
-
-
-
-
-
 
 
 

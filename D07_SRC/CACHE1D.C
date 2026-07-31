@@ -50,8 +50,14 @@ initcache(long dacachestart, long dacachesize)
 
 	for(i=1;i<200;i++) lockrecip[i] = (1<<28)/(200-i);
 
-	cachestart = dacachestart;
-	cachesize = dacachesize;
+	// [Darkcrafter07]: Align the main cache buffer start address to 16-byte boundary
+	// Prevents unaligned 32-bit memory access penalties on i486 DX/SX/Cyrix CPUs
+	// cachestart = dacachestart;
+	cachestart = (dacachestart + 15) & 0xfffffff0;
+
+	// [Darkcrafter07]: Scale down cachesize by the applied padding offset to prevent heap memory overflows
+	// cachesize = dacachesize;
+	cachesize = dacachesize - (cachestart - dacachestart);
 
 	cac[0].leng = cachesize;
 	cac[0].lock = &zerochar;
@@ -82,6 +88,15 @@ allocache (long *newhandle, long newbytes, char *newlockptr)
 	{
 		o1 -= cac[z].leng;
 		o2 = o1+newbytes; if (o2 > cachesize) continue;
+
+		// [Darkcrafter07]: Fast Escape Optimization
+		// If this specific block is entirely unlocked and large enough,
+		// take it immediately and bypass the heavy mulscale32 loops entirely!
+		if (*cac[z].lock == 0 && cac[z].leng >= newbytes)
+		{
+			bestval = 0; besto = o1; bestz = z;
+			break; // Instant cache hit, stop burning 486 CPU cycles!
+		}
 
 		daval = 0;
 		for(i=o1,zz=z;i<o2;i+=cac[zz++].leng)
@@ -421,42 +436,17 @@ kclose(long handle)
 	filehan[handle] = -1;
 }
 
+//******************************************************************************
+//
+//                        STREAM FILE OPERATIONS - START
+//
+//******************************************************************************
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/******************************************************************************
-    UNCACHED GROUP FILE OPERATIONS START
-******************************************************************************/
-
-/*
- * kopen4group_uncached - Open file from group archive without caching
- */
-long kopen4group_uncached(char *filename)
+// Open file from group archive without caching
+kopen4group_stream(char *filename)
 {
-    long i;
-    long j;
-    long k;
-    long filenum;
-    long groupnum;
-    char bad;
-    char *gfileptr;
-    long foundhandle;
+    long i, j, k, filenum, groupnum, foundhandle;
+    char bad, *gfileptr;
 
     foundhandle = -1;
     groupnum = -1;
@@ -503,16 +493,10 @@ long kopen4group_uncached(char *filename)
     return -1;
 }
 
-/*
- * kread_uncached - Read from uncached group file
- */
-long kread_uncached(long handle, void *buffer, long leng)
+// kread_stream - Read from uncached group file
+kread_stream(long handle, void *buffer, long leng)
 {
-    long size;
-    long i;
-    long filenum;
-    long groupnum;
-    long readleng;
+    long i, size, filenum, groupnum, readleng;
 
     if ((handle < 0) || (handle >= MAXOPENFILES))
     {
@@ -548,14 +532,10 @@ long kread_uncached(long handle, void *buffer, long leng)
     return -1;
 }
 
-/*
- * klseek_uncached - Seek in uncached group file
- */
-long klseek_uncached(long handle, long offset, long whence)
+// Search in uncached group file
+klseek_stream(long handle, long offset, long whence)
 {
-    long i;
-    long groupnum;
-    long filenum;
+    long i, groupnum, filenum;
 
     if ((handle < 0) || (handle >= MAXOPENFILES))
     {
@@ -592,13 +572,10 @@ long klseek_uncached(long handle, long offset, long whence)
     return(filepos[handle]);
 }
 
-/*
- * kfilelength_uncached - Get file size from group file
- */
-long kfilelength_uncached(long handle)
+// Get file size from group file
+kfilelength_stream(long handle)
 {
-    long i;
-    long groupnum;
+    long i, groupnum;
 
     if ((handle < 0) || (handle >= MAXOPENFILES))
     {
@@ -614,10 +591,8 @@ long kfilelength_uncached(long handle)
     return gfileoffs[groupnum][i+1]-gfileoffs[groupnum][i];
 }
 
-/*
- * kclose_uncached - Close uncached group file
- */
-void kclose_uncached(long handle)
+// Close streamed group file
+kclose_stream(long handle)
 {
     if ((handle < 0) || (handle >= MAXOPENFILES))
     {
@@ -626,52 +601,13 @@ void kclose_uncached(long handle)
     filehan[handle] = -1;
 }
 
-/******************************************************************************
-    UNCACHED GROUP FILE OPERATIONS END
-******************************************************************************/
+//******************************************************************************
+//
+//                        STREAM FILE OPERATIONS - FINISH
+//
+//******************************************************************************
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	//Internal LZW variables
+//Internal LZW variables
 #define LZWSIZE 16384           //Watch out for shorts!
 static char *lzwbuf1, *lzwbuf4, *lzwbuf5, lzwbuflock[5];
 static short *lzwbuf2, *lzwbuf3;

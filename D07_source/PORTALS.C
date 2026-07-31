@@ -1230,7 +1230,8 @@ void SE40_DrawPortal0(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -1459,7 +1460,7 @@ void se40codeportal0(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -1516,7 +1517,8 @@ void SE40_DrawPortal1(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -1745,7 +1747,7 @@ void se40codeportal1(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -1802,7 +1804,8 @@ void SE40_DrawPortal2(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -2031,7 +2034,7 @@ void se40codeportal2(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2088,7 +2091,8 @@ void SE40_DrawPortal3(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -2317,7 +2321,7 @@ void se40codeportal3(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2374,7 +2378,8 @@ void SE40_DrawPortal4(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -2603,7 +2608,7 @@ void se40codeportal4(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2660,7 +2665,8 @@ void SE40_DrawPortal5(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -2889,7 +2895,7 @@ void se40codeportal5(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -2945,7 +2951,8 @@ void SE40_DrawPortal6(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -3174,7 +3181,7 @@ void se40codeportal6(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3230,7 +3237,8 @@ void SE40_DrawPortal7(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -3459,7 +3467,7 @@ void se40codeportal7(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3514,7 +3522,8 @@ void SE40_DrawPortal8(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -3743,7 +3752,7 @@ void se40codeportal8(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -3799,7 +3808,8 @@ void SE40_DrawPortal9(int spnum,long x,long y,long z,short a,short h,long smooth
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -4028,7 +4038,7 @@ void se40codeportal9(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4084,7 +4094,8 @@ void SE40_DrawPortal10(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -4313,7 +4324,7 @@ void se40codeportal10(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4369,7 +4380,8 @@ void SE40_DrawPortal11(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -4598,7 +4610,7 @@ void se40codeportal11(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4654,7 +4666,8 @@ void SE40_DrawPortal12(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -4883,7 +4896,7 @@ void se40codeportal12(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -4939,7 +4952,8 @@ void SE40_DrawPortal13(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -5168,7 +5182,7 @@ void se40codeportal13(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5224,7 +5238,8 @@ void SE40_DrawPortal14(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -5453,7 +5468,7 @@ void se40codeportal14(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5508,7 +5523,8 @@ void SE40_DrawPortal15(int spnum,long x,long y,long z,short a,short h,long smoot
     static long cam_base_z[MAXSPRITES]; 
     static short cam_init_done[MAXSPRITES];
     static short drawing_portal = 0; // RECURSION PROTECTION
-    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat, *pspr_ptr;
+    short target_w, target_h, new_xr = 0, new_yr = 0, old_cstat;
+    char *pspr_ptr;
     unsigned char old_xr, old_yr;
 
     // Prevent portal-inside-portal recursion crash
@@ -5737,7 +5753,7 @@ void se40codeportal15(long x, long y, long z, long a, long h, long smoothratio)
             l = getangle(sprite[i].x - ps[screenpeek].posx, sprite[i].y - ps[screenpeek].posy);
             angdiff = klabs(((l - ps[screenpeek].ang + 1024) & 2047) - 1024);
 
-            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 548
+            // if diff is less than 512 (fov90+cansee). 512 is 90degrees but awake them eariler at ang of 620
             if (angdiff < 548 && cansee(ps[screenpeek].posx, ps[screenpeek].posy, ps[screenpeek].posz-(24<<8), 
                 ps[screenpeek].cursectnum, sprite[i].x, sprite[i].y, sprite[i].z, sprite[i].sectnum))
             {
@@ -5874,6 +5890,7 @@ void teleportplayerstuffportal(short snum)
                 camindexprtl = (short)hittype[spriteindexprtl].temp_data[10]; 
                 if (camindexprtl < 0 || sprite[camindexprtl].picnum != CAMERA1)
                 {
+                    camindexprtl = -1;
                     for(jprtl=0; jprtl<MAXSPRITES; jprtl++)
                     {
                         if(sprite[jprtl].picnum == 
@@ -5906,10 +5923,11 @@ void teleportplayerstuffportal(short snum)
                 }
 
                 // 4. Silent teleportation
-                if (camindexprtl >= 0)
+                // Teleport if either DEST or CAMERA is found
+                if (teleportdestprtl >= 0 || camindexprtl >= 0)
                 {
-                    exit_anchor =
-                      (teleportdestprtl >= 0) ? teleportdestprtl : camindexprtl;
+                    // PRTLTELEPDEST has priority over CAMERA1
+                    exit_anchor = (teleportdestprtl >= 0) ? teleportdestprtl : camindexprtl;
 
                     angdiffprtl2dest = (sprite[exit_anchor].ang - 
                                      sprite[spriteindexprtl].ang + 1024) & 2047;
