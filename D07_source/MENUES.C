@@ -3472,54 +3472,141 @@ void endanimvol43(long fr)
     }
 }
 
-long lastanimhack = 0;
-void playanm(char *fn, char t) // The ultra low-RAM stream version
+char fullanmramload = 0;         // Externed in animlib.c further
+char decideanmloadmode(char *filename)
 {
-    long i, j, k, numframes = 0, last_frame_extra_delay = 0;
-    int32 handle = -1;
-    byte *palptr;
+    int32 check_fp = -1;         // File handle for size check
+    long anm_len = 0;            // Size of the animation file (bytes)
+    long current_free_cache = 0; // Available memory inside cache1d structure
 
+    // 1. Get the animation file size
+    check_fp = kopen4load(filename, 0);
+    if (check_fp != -1)
+    {
+        anm_len = kfilelength(check_fp);
+        kclose(check_fp);
+    }
+    else
+    {
+        // File not found or error -> default to STREAM.
+        fullanmramload = 0;
+        return fullanmramload;
+    }
+
+    // 2. Query cache1d allocator for evictable memory size
+    current_free_cache = kgetfreecachespace();
+
+    // 3. Smart decision logic to prevent mandatory padding or engine crashes:
+    //    - If the file is >= 2MB, force STREAM to avoid starving texturing blocks.
+    //    - If the file payload + control structure overhead exceeds cache, STREAM.
+    //    - Otherwise -> Full RAM load is perfectly safe to execute.
+    if (anm_len >= 2097152L || (anm_len + sizeof(anim_t) + 65536L) > current_free_cache)
+    {
+        fullanmramload = 0; // Streaming mode (low RAM)
+    }
+    else
+    {
+        fullanmramload = 1; // Full RAM load (fast)
+    }
+
+    return fullanmramload;
+}
+
+long lastanimhack = 0;
+void playanm(char *fn, char t)
+{
+    int32 handle = -1;
+    long i, j, k, length = 0, numframes = 0;
+    long last_frame_extra_delay = 0;
+    char *animbuf = NULL;
+    byte *palptr = NULL;
+
+    decideanmloadmode(fn); // 0 = low-RAM streaming, 1 = full RAM
+
+    // Flush keyboard queue for some animations
     if (t != 7 && t != 9 && t != 10 && t != 11)
     {
         KB_FlushKeyboardQueue();
     }
 
+    // Early exit if a key is already pressed
     if (KB_KeyWaiting())
     {
         FX_StopAllSounds();
         goto ENDOFANIMLOOP;
     }
 
-    walock[MAXTILES-3-t] = 219 + t;
+    walock[MAXTILES - 3 - t] = 219 + t; // Lock the tile for animation
 
-    // PROTECTED LOW-MEMORY STREAMING: Pass only the filename string
-    ANIM_LoadAnim(fn);
+    if (fullanmramload)    // === MODE 1: FULL RAM LOAD ===
+    {
+        handle = kopen4load(fn, 0);
+        if (handle == -1)
+        {
+            goto ENDOFANIMLOOP;         // File not found
+        }
+        length = kfilelength(handle);
+    
+        // Allocate cache (RAM) for the entire animation
+        if (anim == NULL || lastanimhack != (MAXTILES - 3 - t))
+        {
+            allocache((long *)&anim, length + sizeof(anim_t), &walock[MAXTILES - 3 - t]);
+            if (anim == NULL)
+            {
+                kclose(handle);
+                goto ENDOFANIMLOOP;     // Allocation failed
+            }
+        }
+    
+        animbuf = (char *)(FP_OFF(anim) + sizeof(anim_t));
+        lastanimhack = (MAXTILES - 3 - t);
+
+        // Set fixed resolution (200x320) for full-RAM mode
+        tilesizx[MAXTILES - 3 - t] = 200;
+        tilesizy[MAXTILES - 3 - t] = 320;
+
+        // Read entire file into RAM
+        kread(handle, animbuf, length);
+        kclose(handle);
+
+        // Load animation from buffer
+        ANIM_LoadAnim(animbuf);
+    }
+    else               // === MODE 2: LOW-RAM STREAMING ===
+    {
+        // Load animation in streaming mode (low RAM)
+        ANIM_LoadAnim(fn);
+    
+        // Get dynamic resolution from header, must be flipped
+        tilesizy[MAXTILES - 3 - t] = (long)anim->lpheader.width;
+        tilesizx[MAXTILES - 3 - t] = (long)anim->lpheader.height;
+    }
+
+    // Get number of frames and palette (common for both modes)
     numframes = ANIM_NumFrames();
+    if (numframes <= 0)
+    {
+        goto ENDOFANIMLOOP;                // No frames found
+    }
     palptr = ANIM_GetPalette();
-
-    // DYNAMIC RESOLUTION ASSIGNMENT: Pull authentic file resolution from header
-    tilesizy[MAXTILES - 3 - t] = (long)anim->lpheader.width;
-    tilesizx[MAXTILES - 3 - t] = (long)anim->lpheader.height;
-
-    // Convert 8-bit palette channels to standard VGA 6-bit registers (0-63 scale)
+    
+    // Convert 8-bit palette to VGA 6-bit (0-63 scale)
     for (i = 0; i < 256; i++)
     {
-        j = (i << 2);
-        k = j - i;
+        j = (i << 2); k = j - i;
         tempbuf[j + 0] = (palptr[k + 2] >> 2); // Blue
         tempbuf[j + 1] = (palptr[k + 1] >> 2); // Green
         tempbuf[j + 2] = (palptr[k + 0] >> 2); // Red
         tempbuf[j + 3] = 0;
     }
     VBE_setPalette(0L, 256L, tempbuf);
-
-    ototalclock = totalclock + 10;
-
+    
+    ototalclock = totalclock + 10;         // Initialize frame timing
+    
+    // MAIN ANIMATION LOOP (common for both modes)
     for (i = 1; i < numframes; i++)
     {
-        // FIXED IDLE WINDOW: Execute getpackets() continually and pump the
-        // streaming audio buffer refiller strictly while waiting for totalclock ticks
-        while (totalclock < ototalclock)
+        while (totalclock < ototalclock)   // Wait for the next frame
         {
             if ((KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)))
             {
@@ -3534,12 +3621,12 @@ void playanm(char *fn, char t) // The ultra low-RAM stream version
             FX_ServiceVocStream(); 
             getpackets();
         }
-
-        // Add extra delay only for the final frame execution boundary
-        if (i == numframes - 1) 
+    
+        // Add extra delay for the last frame
+        if (i == numframes - 1)
         {
-            ototalclock += 120;
-            last_frame_extra_delay = 1; 
+            ototalclock += 120;            // 1 second delay (120 ticks)
+            last_frame_extra_delay = 1;
         }
         else
         {
@@ -3553,13 +3640,23 @@ void playanm(char *fn, char t) // The ultra low-RAM stream version
             else if(ud.volume_number == 1) ototalclock += 18; // 120/18=6.67FPS,where 1 is ID of EP2 ending (CINEOV2.anm) 
             else                           ototalclock += 10; // 120/10=12FPS,  must be default undefined video framerate
         }
-
-        // FLAT POINTER LINKAGE: Strip the broken 16-bit FP_OFF wrapper bug away
-        waloff[MAXTILES-3-t] = (long)ANIM_DrawFrame(i);
-        
-        rotatesprite(0<<16, 0<<16, 65536L, 512, MAXTILES-3-t, 0, 0, 2+4+8+16+64, 0, 0, xdim-1, ydim-1);
+    
+        // Draw the current frame
+        if (fullanmramload)
+        {
+            // MODE 1: FULL RAM LOAD
+            waloff[MAXTILES - 3 - t] = FP_OFF(ANIM_DrawFrame(i));
+        }
+        else
+        {
+            // MODE 2: LOW-RAM STREAMING
+            waloff[MAXTILES - 3 - t] = (long)ANIM_DrawFrame(i);
+        }
+    
+        rotatesprite(0 << 16, 0 << 16, 65536L, 512, MAXTILES - 3 - t, 0, 0, 2 + 4 + 8 + 16 + 64, 0, 0, xdim - 1, ydim - 1);
         nextpage();
-
+    
+        // Play SOUNDS
         if     (t == 8 )  endanimvol41(i);      // 8  is sound ID
         else if(t == 10)  endanimvol42(i);      // 10 is sound ID
         else if(t == 11)  endanimvol43(i);      // 11 is sound ID
@@ -3568,7 +3665,8 @@ void playanm(char *fn, char t) // The ultra low-RAM stream version
         else if(t == 6 )  first4animsounds(i);  // 6  is sound ID
         else if(t == 5 )  logoanimsounds(i);    // 5  is sound ID
         else if(t < 4  )  endanimsounds(i);     // 4  is sound ID
-
+    
+        // Handle last frame delay (streaming mode only)
         if (i == numframes - 1 && last_frame_extra_delay)
         {
             while (totalclock < ototalclock)
@@ -3576,15 +3674,8 @@ void playanm(char *fn, char t) // The ultra low-RAM stream version
                 getpackets();
                 if ((KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)))
                 {
-                    // Catch bypass keys but hold final frame visible until ototalclock ticks completely
+                    // Wait for delay to complete even if a key is pressed
                 }
-            }
-        } 
-        else
-        {
-            if ((KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)))
-            {
-                goto ENDOFANIMLOOP;
             }
         }
     }

@@ -619,6 +619,26 @@ kclose_stream(long handle)
 //
 //******************************************************************************
 
+// Measure free RAM left
+kgetfreecachespace(void)
+{
+	long i;
+	long total_free_and_evictable_bytes = 0;
+
+	// Loop through all currently allocated cache blocks
+	for (i = 0; i < cacnum; i++)
+	{
+		// Inside cache1d.c, if a block has no lock pointer, or if its lock value
+		// is less than 200, cache is legally allowed to evict it (suck it out)
+		if (cac[i].lock == NULL || (*cac[i].lock) < 200)
+		{
+			total_free_and_evictable_bytes += cac[i].leng;
+		}
+	}
+
+	return total_free_and_evictable_bytes;
+}
+
 //Internal LZW variables
 #define LZWSIZE 16384           //Watch out for shorts!
 static char *lzwbuf1, *lzwbuf4, *lzwbuf5, lzwbuflock[5];

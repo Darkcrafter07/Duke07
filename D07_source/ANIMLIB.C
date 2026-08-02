@@ -1,6 +1,7 @@
 //-------------------------------------------------------------------------
 /*
 Copyright (C) 1996, 2003 - 3D Realms Entertainment
+Copyright (C) 2026 - Darkcrafter07
 
 This file is part of Duke Nukem 3D version 1.5 - Atomic Edition
 
@@ -24,9 +25,8 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 */
 //-------------------------------------------------------------------------
 
-
-// ANIMLIB.C - Monolithic Low-Memory Stream Player Implementation for DOS4GW
-
+// ANIMLIB.C - Deluxe Paint 2 animation ANM files player.
+// Features entire file RAM load and low-RAM stream (64KB RAM) modes.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,9 +38,14 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "util_lib.h"
 #include "animlib.h"
 
+extern char fullanmramload; // declared in menues.c
+
 // Globals
 anim_t *anim = NULL;
-static boolean Anim_Started = false;
+static char Anim_Started = 0; 
+
+// Isolated mem seg for stream mode 2 to prevent structures distortion
+static uint16 static_streampage[0x8000];
 
 void CheckAnimStarted(char *funcname)
 {
@@ -54,11 +59,12 @@ void CheckAnimStarted(char *funcname)
 uint16 findpage(uint16 framenumber)
 {
     uint16 i;
-
     CheckAnimStarted("findpage");
     for (i = 0; i < anim->lpheader.nLps; i++)
     {
-        if (anim->LpArray[i].baseRecord <= framenumber && anim->LpArray[i].baseRecord + anim->LpArray[i].nRecords > framenumber)
+        if (anim->LpArray[i].baseRecord <= framenumber && 
+            anim->LpArray[i].baseRecord + 
+            (anim->LpArray[i].nRecords & 0x3FFF) > framenumber)
         {
             return i;
         }
@@ -66,31 +72,7 @@ uint16 findpage(uint16 framenumber)
     return i;
 }
 
-// Seek out and load the specific large page directly from GRP file handle stream
-void loadpage(uint16 pagenumber, uint16 *pagepointer)
-{
-    long seek_pos;
-    int32 size;
-
-    CheckAnimStarted("loadpage");
-
-    if (anim->curlpnum != pagenumber)
-    {
-        anim->curlpnum = pagenumber;
-        size = sizeof(lp_descriptor);
-
-        // PROTECTED DISK STREAMING: Re-base pointer calculations strictly to low-level file seeks
-        seek_pos = 0xB00L + ((long)pagenumber * 0x10000L);
-        
-        klseek_stream(anim->file_handle, seek_pos, SEEK_SET);
-        kread_stream(anim->file_handle, &anim->curlp, size);
-
-        klseek_stream(anim->file_handle, seek_pos + size + 2, SEEK_SET);
-        kread_stream(anim->file_handle, pagepointer, anim->curlp.nBytes + (anim->curlp.nRecords * 2));
-    }
-}
-
-// Portable 32-Bit Flat Mode Port of James Dose Decompressor Engine
+// Portable 32-bit flat mode decompression engine
 void CPlayRunSkipDump(char *srcP, char *dstP)
 {
     uint16 wordCnt;
@@ -105,12 +87,11 @@ nextOp:
     cnt -= 0x80;
     if (cnt == 0) goto longOp;
 
-    /* shortSkip processing path */
+    // shortSkip processing path
     dstP += cnt; 
     goto nextOp;
 
 dump:
-    // FIXED SAFE BOUNDS: Wrap to safe conditional decrement to break infinite zipping corruptions
     while (cnt--)
     {
         *dstP++ = *srcP++;
@@ -121,7 +102,6 @@ run:
     wordCnt = (byte)*srcP++; 
     pixel = *srcP++;
     
-    // FIXED SAFE BOUNDS: Wrap to safe loop sequence to handle wordCnt == 0 correctly
     while (wordCnt--)
     {
         *dstP++ = pixel;
@@ -133,7 +113,7 @@ longOp:
     srcP += sizeof(uint16);
     if ((int16)wordCnt <= 0) goto notLongSkip; 
 
-    /* longSkip processing path */
+    // longSkip processing path
     dstP += wordCnt;
     goto nextOp;
 
@@ -143,7 +123,7 @@ notLongSkip:
     wordCnt -= 0x8000; 
     if (wordCnt >= 0x4000) goto longRun;
 
-    /* longDump handling loop sequence */
+    // longDump handling loop sequence
     while (wordCnt--)
     {
         *dstP++ = *srcP++;
@@ -166,9 +146,9 @@ stop:
 // Render the frame specified from the large page currently in memory
 void renderframe(uint16 framenumber, uint16 *pagepointer)
 {
-    byte *ppointer;
-    long offset;
     int i, destframe;
+    long offset;
+    byte *ppointer;
 
     CheckAnimStarted("renderframe");
     offset = 0;
@@ -182,9 +162,9 @@ void renderframe(uint16 framenumber, uint16 *pagepointer)
     ppointer = (byte *)pagepointer;
     ppointer += (anim->curlp.nRecords * 2) + offset;
 
-    if (ppointer[1])
+    if (ppointer)
     {
-        ppointer += (4 + (((uint16 *)ppointer)[1] + (((uint16 *)ppointer)[1] & 1)));
+        ppointer += (4 + (*((uint16 *)ppointer) & 1));
     }
     else
     {
@@ -194,33 +174,107 @@ void renderframe(uint16 framenumber, uint16 *pagepointer)
     CPlayRunSkipDump((char *)ppointer, (char *)anim->imagebuffer);
 }
 
+// HIGH-COMPATIBILITY PIPELINE DISPATCHER:
+// Execute both modes cleanly without overlapping memory fields
 void drawframe(uint16 framenumber)
 {
+    int32 size;
+    long page_offset;
+    uint16 pagenum;
+    byte *file_ptr;
+
     CheckAnimStarted("drawframe");
-    loadpage(findpage(framenumber), anim->thepage);
-    renderframe(framenumber, anim->thepage);
+    pagenum = findpage(framenumber);
+    size = sizeof(lp_descriptor);
+
+    if (fullanmramload)
+    {
+        // --- MODE 1: PURE MONOLITHIC RAM TRACKING ---
+        page_offset = 0xB00L + ((long)pagenum * 0x10000L);
+        file_ptr = anim->buffer + page_offset;
+        
+        memcpy(&anim->curlp, file_ptr, size);
+        file_ptr = anim->buffer + page_offset + size + 2;
+        anim->curlpnum = pagenum;
+
+        renderframe(framenumber, (uint16 *)file_ptr);
+    }
+    else
+    {
+        // --- MODE 2: ULTRA LOW-RAM DISK STREAMING ---
+        if (anim->curlpnum != pagenum)
+        {
+            anim->curlpnum = pagenum;
+            page_offset = 0xB00L + ((long)pagenum * 0x10000L);
+
+            klseek_stream(anim->file_handle, page_offset, SEEK_SET);
+            kread_stream(anim->file_handle, &anim->curlp, size);
+
+            klseek_stream(anim->file_handle, page_offset + size + 2, SEEK_SET);
+            kread_stream
+            (
+                anim->file_handle, static_streampage, 
+                anim->curlp.nBytes + (anim->curlp.nRecords * 2)
+            );
+        }
+
+        renderframe(framenumber, static_streampage);
+    }
 }
 
-// Setup internal streaming anim data structure bounds without buffering entire file data
-void ANIM_LoadAnim(char *filename)
-{
-    long header_size, array_size;
-    int i;
+// Forward declarations of isolated parsers
+void ANIM_LoadAnimFullram(char *buffer);
+void ANIM_LoadAnimStream(char *filename);
 
-    if (!Anim_Started) 
+// Unified Entry Wrapper called straight from playanm context hooks
+void ANIM_LoadAnim(char *buffer_or_filename)
+{
+    Anim_Started = 1;
+    if (fullanmramload) ANIM_LoadAnimFullram(buffer_or_filename);
+    else                ANIM_LoadAnimStream(buffer_or_filename);
+}
+
+// Pre-assigned buffer pipeline mapping (MODE 1)
+void ANIM_LoadAnimFullram(char *buffer)
+{
+    int i;
+    long header_size, array_size;
+    byte *pal_source_with_mandatory_padding;
+
+    anim->buffer = (byte *)buffer; 
+    anim->file_handle = -1;
+    anim->curlpnum = 0xffff;
+    anim->currentframe = -1;
+
+    header_size = sizeof(lpfileheader);
+    memcpy(&anim->lpheader, anim->buffer, header_size);
+
+    pal_source_with_mandatory_padding = anim->buffer + header_size + 128L;
+    for (i = 0; i < 768; i += 3)
     {
-        Anim_Started = true;
+        anim->pal[i + 2] = *pal_source_with_mandatory_padding++;
+        anim->pal[i + 1] = *pal_source_with_mandatory_padding++;
+        anim->pal[i]     = *pal_source_with_mandatory_padding++;
+        
+        // Explicitly SKIP mandatory 4th RGBA byte from RAM layout
+        pal_source_with_mandatory_padding++; 
     }
+
+    array_size = sizeof(anim->LpArray);
+    memcpy(&anim->LpArray, anim->buffer + (long)anim->lpheader.lpfTableOffset, array_size);
+}
+
+// High performance runtime hardware storage seeker initialization (MODE 2)
+void ANIM_LoadAnimStream(char *filename)
+{
+    int i;
+    long header_size, array_size;
 
     if (anim == NULL)
     {
-        // FIX: Pass the address of our global static boolean flag instead of a volatile stack variable!
-        // This ensures Ken's memory manager always references a valid operational memory address.
-        Anim_Started = 1; 
         allocache((long *)&anim, sizeof(anim_t), (char *)&Anim_Started);
     }
 
-    // Isolate active descriptor through uncached file handle streaming sequence
     anim->file_handle = kopen4group_stream(filename);
     if (anim->file_handle == -1)
     {
@@ -228,6 +282,7 @@ void ANIM_LoadAnim(char *filename)
         if (anim->file_handle == -1) return;
     }
 
+    anim->buffer = NULL;
     anim->curlpnum = 0xffff;
     anim->currentframe = -1;
     header_size = sizeof(lpfileheader);
@@ -242,34 +297,29 @@ void ANIM_LoadAnim(char *filename)
         kread_stream(anim->file_handle, &anim->pal[i + 2], 1);
         kread_stream(anim->file_handle, &anim->pal[i + 1], 1);
         kread_stream(anim->file_handle, &anim->pal[i], 1);
-        klseek_stream(anim->file_handle, 1L, SEEK_CUR); // Skip pad byte channel padding
+        
+        // SELF-DOCUMENTING SYSTEM CALL: Mandatory 4-byte stream alignment skip
+        klseek_stream(anim->file_handle, 1L, SEEK_CUR); 
     }
 
-    // Extract large page descriptors array straight from table offset boundary
     array_size = sizeof(anim->LpArray);
     klseek_stream(anim->file_handle, (long)anim->lpheader.lpfTableOffset, SEEK_SET);
     kread_stream(anim->file_handle, &anim->LpArray, array_size);
 }
 
-// Call "suckcache(anim);" BEFORE and AFTER this one! (3 calls!)
 void ANIM_FreeAnim(void)
 {
-    // Call "suckcache(anim);" BEFORE and AFTER this one! (3 calls!)
-    if (Anim_Started)
+    if (anim != NULL)
     {
-        if (anim != NULL)
+        if (anim->file_handle != -1)
         {
-            if (anim->file_handle != -1)
-            {
-                kclose_stream(anim->file_handle);
-                anim->file_handle = -1;
-            }
-            
-            suckcache(anim);
-            anim = NULL;
+            kclose_stream(anim->file_handle);
+            anim->file_handle = -1;
         }
-        Anim_Started = false;
+        anim->buffer = NULL;
+        anim = NULL;
     }
+    Anim_Started = 0;
 }
 
 int32 ANIM_NumFrames(void)
@@ -278,10 +328,9 @@ int32 ANIM_NumFrames(void)
     return anim->lpheader.nRecords;
 }
 
-byte * ANIM_DrawFrame(int32 framenumber)
+byte *ANIM_DrawFrame(int32 framenumber)
 {
     int32 cnt;
-
     CheckAnimStarted("DrawFrame");
     if ((anim->currentframe != -1) && (anim->currentframe <= framenumber))
     {
@@ -301,7 +350,7 @@ byte * ANIM_DrawFrame(int32 framenumber)
     return anim->imagebuffer;
 }
 
-byte * ANIM_GetPalette(void)
+byte *ANIM_GetPalette(void)
 {
     CheckAnimStarted("GetPalette");
     return anim->pal;
