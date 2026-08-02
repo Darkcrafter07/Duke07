@@ -27,6 +27,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "duke3d.h"
 #include "mouse.h"
 #include "animlib.h"
+#include "sndext.h"
 
 extern char inputloc;
 extern int recfilep;
@@ -3360,42 +3361,15 @@ void logoanimsounds(long fr)
     }
 }
 
-void logoanimsounds1(long fr)
+void logoanimlongsoundfile(long fr)
 {
+    // call "soundstream" instead of
+    // "sound" to play long audio files
+    // with ultra-low ram consumption
     switch(fr)
     {
         case 1:
-            sound(LOGO1);
-            break;
-    }
-}
-
-void logoanimsounds2(long fr)
-{
-    switch(fr)
-    {
-        case 1:
-            sound(LOGO2);
-            break;
-    }
-}
-
-void logoanimsounds3(long fr)
-{
-    switch(fr)
-    {
-        case 1:
-            sound(LOGO3);
-            break;
-    }
-}
-
-void logoanimsounds4(long fr)
-{
-    switch(fr)
-    {
-        case 1:
-            sound(LOGO4);
+            soundstream(LOGO1);
             break;
     }
 }
@@ -3499,7 +3473,7 @@ void endanimvol43(long fr)
 }
 
 long lastanimhack = 0;
-void playanm(char *fn, char t) // stream version
+void playanm(char *fn, char t) // The ultra low-RAM stream version
 {
     long i, j, k, numframes = 0, last_frame_extra_delay = 0;
     int32 handle = -1;
@@ -3519,7 +3493,6 @@ void playanm(char *fn, char t) // stream version
     walock[MAXTILES-3-t] = 219 + t;
 
     // PROTECTED LOW-MEMORY STREAMING: Pass only the filename string
-    // The engine reads LPF descriptors directly from GRP without caching full payload in RAM
     ANIM_LoadAnim(fn);
     numframes = ANIM_NumFrames();
     palptr = ANIM_GetPalette();
@@ -3528,7 +3501,7 @@ void playanm(char *fn, char t) // stream version
     tilesizy[MAXTILES - 3 - t] = (long)anim->lpheader.width;
     tilesizx[MAXTILES - 3 - t] = (long)anim->lpheader.height;
 
-    // Convert 8-bit palette channels to standard VGA 6-bit registers (0-63 scale) [Page 6]
+    // Convert 8-bit palette channels to standard VGA 6-bit registers (0-63 scale)
     for (i = 0; i < 256; i++)
     {
         j = (i << 2);
@@ -3544,14 +3517,21 @@ void playanm(char *fn, char t) // stream version
 
     for (i = 1; i < numframes; i++)
     {
+        // FIXED IDLE WINDOW: Execute getpackets() continually and pump the
+        // streaming audio buffer refiller strictly while waiting for totalclock ticks
         while (totalclock < ototalclock)
         {
             if ((KB_KeyPressed(sc_Enter)) || (KB_KeyPressed(sc_Space)) || (KB_KeyPressed(sc_Escape)))
             {
+                FX_StopVocStream();
+                suckcache(sound_stream_ctx);
                 FX_StopAllSounds();
                 clearsoundlocks();
                 goto ENDOFANIMLOOP;
             }
+            
+            // SERVICE PUMP TIME: Refill sound blocks without trashing rotatesprite safely
+            FX_ServiceVocStream(); 
             getpackets();
         }
 
@@ -3563,33 +3543,31 @@ void playanm(char *fn, char t) // stream version
         }
         else
         {
-            if(t == 10) ototalclock += 14;
-            else if(t == 9) ototalclock += 10;
-            else if(t == 7) ototalclock += 18;
-            // t6 is the number of the sound where 120/14=8.57FPS (ep4 intro ID is 6)
-            // the latter number is same in game.c, menues.c, premap.c
-            else if(t == 6) ototalclock += 14;
-            else if(t == 5) ototalclock += 9;
-            else if(ud.volume_number == 3) ototalclock += 10;
-            else if(ud.volume_number == 2) ototalclock += 10;
-            else if(ud.volume_number == 1) ototalclock += 18;
-            else                           ototalclock += 10;
+            if     (t == 10) ototalclock += 14; // 10 is sound ID where 120/14=8.57FPS
+            else if(t == 9)  ototalclock += 10; // 9  is sound ID where 120/10=12FPS
+            else if(t == 7)  ototalclock += 18; // 7  is sound ID where 120/18=6.67FPS
+            else if(t == 6)  ototalclock += 14; // 6  is sound ID where 120/14=8.57FPS
+            else if(t == 5)  ototalclock += 9;                // 120/9=13.3FPS, where 5 is ID of logo (logo.anm)
+            else if(ud.volume_number == 3) ototalclock += 10; // 120/10=12FPS,  where 3 is ID of ?
+            else if(ud.volume_number == 2) ototalclock += 10; // 120/10=12FPS,  where 2 is ID of EP3 ending (CINEOV3.anm)
+            else if(ud.volume_number == 1) ototalclock += 18; // 120/18=6.67FPS,where 1 is ID of EP2 ending (CINEOV2.anm) 
+            else                           ototalclock += 10; // 120/10=12FPS,  must be default undefined video framerate
         }
 
-        // FLAT POINTER LINKAGE: Completely stripped away the broken 16-bit FP_OFF wrapper bug! [Page 20]
+        // FLAT POINTER LINKAGE: Strip the broken 16-bit FP_OFF wrapper bug away
         waloff[MAXTILES-3-t] = (long)ANIM_DrawFrame(i);
         
         rotatesprite(0<<16, 0<<16, 65536L, 512, MAXTILES-3-t, 0, 0, 2+4+8+16+64, 0, 0, xdim-1, ydim-1);
         nextpage();
 
-        if(t == 8) endanimvol41(i);
-        else if(t == 10) endanimvol42(i);
-        else if(t == 11) endanimvol43(i);
-        else if(t == 9) intro42animsounds(i);
-        else if(t == 7) intro4animsounds(i);
-        else if(t == 6) first4animsounds(i);
-        else if(t == 5) logoanimsounds(i);
-        else if(t < 4) endanimsounds(i);
+        if     (t == 8 )  endanimvol41(i);      // 8  is sound ID
+        else if(t == 10)  endanimvol42(i);      // 10 is sound ID
+        else if(t == 11)  endanimvol43(i);      // 11 is sound ID
+        else if(t == 9 )  intro42animsounds(i); // 9  is sound ID
+        else if(t == 7 )  intro4animsounds(i);  // 7  is sound ID
+        else if(t == 6 )  first4animsounds(i);  // 6  is sound ID
+        else if(t == 5 )  logoanimsounds(i);    // 5  is sound ID
+        else if(t < 4  )  endanimsounds(i);     // 4  is sound ID
 
         if (i == numframes - 1 && last_frame_extra_delay)
         {
@@ -3612,10 +3590,12 @@ void playanm(char *fn, char t) // stream version
     }
 
 ENDOFANIMLOOP:
+    FX_StopVocStream();
     FX_StopAllSounds();
     clearsoundlocks();
     suckcache(anim);
     ANIM_FreeAnim();
     suckcache(anim);
+    suckcache(sound_stream_ctx);
     walock[MAXTILES - 3 - t] = 1;
 }

@@ -419,6 +419,18 @@ klseek(long handle, long offset, long whence)
 	return(-1);
 }
 
+// Stream-Aware ktell - Returns current file position pointer for the given handle
+ktell(long handle)
+{
+    if ((handle < 0) || (handle >= MAXOPENFILES)) 
+    {
+        return(-1);
+    }
+    
+    // Returns the exact runtime file position tracking scalar from Ken's core array
+    return(filepos[handle]);
+}
+
 kfilelength(long handle)
 {
 	long i, groupnum;
