@@ -28,7 +28,26 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 //=========================================================================
 // SNDEXT.C - Double-Buffered GRP audio streaming subsystem.
 // Aka "sounds.c extended". Plays long snd files with low RAM consumption.
-//=========================================================================
+//**************************************************************************
+// MULTIVOC SAMPLING SPEED AND RATE-SCALE COMPENSATOR RULE [DO's & DON'Ts]
+//**************************************************************************
+// DON'T: DO NOT pass raw extracted file frequencies (e.g. 11025Hz, 8713Hz)
+//        directly into MV_PlayRaw() rate parameters.
+//        Multivoc's raw injection pathway lacks a container header parser 
+//        and completely bypasses James Dose native Time Constant formula:
+//        samplespeed = 256000000L / (65536 - tc);
+//        Passing file-specific rates here directly warps the assembly
+//        RateScale shift registers, throwing pitch into a chaotic sub-cella
+//        or making sounds chipmunk-accelerated, stuttering and broken.
+//
+// DO:    ALWAYS lock rate argument strictly to the game native hardware
+//        mixing frequency: global variable "MixRate" (8,16,22,44kHz etc).
+//        By feeding the double-buffering cache frame pages aligned
+//        byte-for-byte to the core hardware mixer speed, forcing Multivoc
+//        interpolator step size to a surgical 1.0 integer ratio.
+//        This eliminates continuous pitch-shifting distortions,
+//        locks frequency natively.
+//**************************************************************************
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,66 +74,57 @@ extern int32 NumVoices, NumChannels;
 extern int32 NumBits, MixRate, MidiPort, ReverseStereo;
 
 extern short soundm[];
-extern char *sound_filenames[];
 
 // Globals for streaming pipeline tracker
 static int   active_dma_buffer = 0;
 static int32 stream_file_handle = -1;
-static long  stream_buf_size = 16384L; 
+static long  stream_buf_size = 32768;
 static long  stream_file_pos = 0;
-static byte  *stream_buf[2] = { NULL, NULL };
 static char  audio_stream_active = 0;
 static char  audio_stream_looped = 0;
 static short active_stream_sound_id = -1;
-// Dynamic offset tracker (0x20 for VOC, 0x2C for WAV)
 static long  audio_header_offset = 0x20L;
 
-// Global sound context initialization
-sound_stream_t *sound_stream_ctx = NULL;
+// Static sound stream context (no allocache)
+static sound_stream_t stream_ctx_static;
+sound_stream_t *sound_stream_ctx = &stream_ctx_static;
 
+// Set up static buffers
+static byte static_stream_buffer_0[16384];
+static byte static_stream_buffer_1[16384];
 
-
-//**************************************************************************
-// MULTIVOC SAMPLING SPEED AND RATE-SCALE COMPENSATOR RULE [DO's & DON'Ts]
-//**************************************************************************
-// DON'T: DO NOT pass raw extracted file frequencies (e.g. 11025Hz, 8713Hz)
-//        directly into MV_PlayRaw() rate parameters.
-//        Multivoc's raw injection pathway lacks a container header parser 
-//        and completely bypasses James Dose native Time Constant formula:
-//        samplespeed = 256000000L / (65536 - tc);
-//        Passing file-specific rates here directly warps the assembly
-//        RateScale shift registers, throwing pitch into a chaotic sub-cella
-//        or making sounds chipmunk-accelerated, stuttering and broken.
-//
-// DO:    ALWAYS lock rate argument strictly to the game native hardware
-//        mixing frequency: global variable "MixRate" (8,16,22,44kHz etc).
-//        By feeding the double-buffering cache frame pages aligned
-//        byte-for-byte to the core hardware mixer speed, forcing Multivoc
-//        interpolator step size to a surgical 1.0 integer ratio.
-//        This eliminates continuous pitch-shifting distortions,
-//        locks frequency natively.
-//**************************************************************************
-
-//==========================================================================
-// Background buffer pipeline feeder driven by clean hardware status checks
-//==========================================================================
+//===============================================================================
+// FX_ServiceVocStream() - Background streaming service for double-buffered audio
+//===============================================================================
 void FX_ServiceVocStream(void)
 {
     int shadow_page, handle;
     long bytes_to_read, bytes_read;
 
-    if (!audio_stream_active || sound_stream_ctx == NULL || sound_stream_ctx->playing == 0) return;
+    if (!audio_stream_active || 
+        sound_stream_ctx == NULL || 
+        !sound_stream_ctx->playing)
+        return;
 
     handle = active_stream_sound_id;
+    
+    // SAFETY: Validate handle bounds
+    if (handle < 0 || handle >= NUM_SOUNDS) return;
 
-    // HARDWARE SYNC CHECK: Trigger update pass strictly when Multivoc drops the playing channel
     if (MV_VoicePlaying(sound_stream_ctx->voice_handle) == 0)
     {
         shadow_page = sound_stream_ctx->active_page ^ 1;
-        
+
+        // SAFETY: Check file handle validity
+        if (sound_stream_ctx->file_handle == -1)
+        {
+            FX_StopVocStream();
+            return;
+        }
+
         if (sound_stream_ctx->remaining_bytes <= 0)
         {
-            if (soundm[handle] & 1) // Loop handling check pass
+            if (soundm[handle] & 1) 
             {
                 sound_stream_ctx->remaining_bytes = soundsiz[handle] - audio_header_offset;
                 klseek_stream(sound_stream_ctx->file_handle, audio_header_offset, SEEK_SET);
@@ -126,31 +136,34 @@ void FX_ServiceVocStream(void)
             }
         }
 
-        // TRIGGER EXTRACTED FREQUENCY RAW INJECTION ALIGNED TO HARDWARE MIXRATE
+        // SAFETY: Validate chunk size before playing
+        if (sound_stream_ctx->current_chunk_size <= 0 || 
+            sound_stream_ctx->current_chunk_size > 16384) return;
+
         sound_stream_ctx->voice_handle = MV_PlayRaw
         (
-            (char *)sound_stream_ctx->audio_windows[shadow_page], 
-            sound_stream_ctx->current_chunk_size, 
-            MixRate, // Locked straight to game's native hardware mixing rate to enforce step 1
-            0,       // Locked to 0 offset to stop the continuous pitch shifting distortions
-            LOUDESTVOLUME, 
-            LOUDESTVOLUME, // Balanced mono into left speaker register
-            LOUDESTVOLUME, // Balanced mono into right speaker register
+            (char *)sound_stream_ctx->audio_windows[shadow_page],
+            sound_stream_ctx->current_chunk_size,
+            MixRate,
+            0,
+            LOUDESTVOLUME,
+            LOUDESTVOLUME,
+            LOUDESTVOLUME,
             soundpr[handle], handle
         );
 
         sound_stream_ctx->active_page = shadow_page;
 
-        // Async pre-fill shadow buffer layout directly from GRP stream file descriptors
         bytes_to_read = min(16384L, sound_stream_ctx->remaining_bytes);
+        memset((void*)sound_stream_ctx->audio_windows[shadow_page ^ 1], 0, 16384);
 
         bytes_read = kread_stream
         (
-            sound_stream_ctx->file_handle, 
-            sound_stream_ctx->audio_windows[shadow_page ^ 1], 
+            sound_stream_ctx->file_handle,
+            sound_stream_ctx->audio_windows[shadow_page ^ 1],
             bytes_to_read
         );
-        
+
         if (bytes_read > 0)
         {
             sound_stream_ctx->remaining_bytes -= bytes_read;
@@ -160,14 +173,10 @@ void FX_ServiceVocStream(void)
 }
 
 //==========================================================================
-// FX_StopVocStream() - stop audio streaming and clear RAM.
-// Calling just this one is not sufficient for the ancient Watcom C 11.0!
-// Also put this after FX_StopVocStream(); - suckcache(sound_stream_ctx);
+// FX_StopVocStream() - Stop audio streaming and clear RAM.
 //==========================================================================
 void FX_StopVocStream(void)
 {
-    // Calling just this one is not sufficient for the ancient Watcom C 11.0!
-    // Also put this after FX_StopVocStream(); - suckcache(sound_stream_ctx);
     if (audio_stream_active)
     {
         if (sound_stream_ctx != NULL)
@@ -182,10 +191,9 @@ void FX_StopVocStream(void)
                 kclose_stream(sound_stream_ctx->file_handle);
                 sound_stream_ctx->file_handle = -1;
             }
-            suckcache(sound_stream_ctx);
-            sound_stream_ctx = NULL;
+            sound_stream_ctx = NULL; // Reset pointer
         }
-        
+
         if (active_stream_sound_id != -1)
         {
             Sound[active_stream_sound_id].ptr = NULL;
@@ -197,65 +205,71 @@ void FX_StopVocStream(void)
 }
 
 //==========================================================================
-// soundstream() - a sound ID-compatible streaming sound injector
-// call this one just like regular "sound" in menues.c to play long files
+// soundstream() - Stream a long sound file with low RAM consumption.
 //==========================================================================
 void soundstream(short num)
 {
     int i;
     long bytes_read_1, bytes_read_2;
-    long file_len, current_offset, control_lock = 200;
+    long file_len, current_offset;
     short pitch, pitche, pitchs, cx;
     byte file_header_scratch[0x30];
     unsigned char voc_rate_byte;
 
+    // Early exit if sound system is disabled or invalid
     if (FXDevice == NumSoundCards)             return;
     if (SoundToggle == 0)                      return;
-    if (VoiceToggle == 0 && (soundm[num] & 4)) return; 
+    if (VoiceToggle == 0 && (soundm[num] & 4)) return;
     if ((soundm[num] & 8) && ud.lockout)       return;
 
+    // Calculate pitch variation
     pitchs = soundps[num];
     pitche = soundpe[num];
     cx = klabs(pitche - pitchs);
 
     if (cx)
     {
-        if (pitchs < pitche)   pitch = pitchs + (rand() % cx); 
-        else                   pitch = pitche + (rand() % cx); 
+        if (pitchs < pitche)   pitch = pitchs + (rand() % cx);
+        else                   pitch = pitche + (rand() % cx);
     }
-    else 
+    else
     {
-                               pitch = pitchs; 
+        pitch = pitchs;
     }
 
-    if (sounds[num] == NULL)                   return;
+    // Stop any active stream
     if (audio_stream_active) FX_StopVocStream();
 
-    if (sound_stream_ctx == NULL)
-    {
-        allocache((long *)&sound_stream_ctx, sizeof(sound_stream_t), &control_lock);
-    }
-    if (sound_stream_ctx == NULL)              return;
+    // Initialize stream context safely
+    memset(&stream_ctx_static, 0, sizeof(sound_stream_t));
+    sound_stream_ctx = &stream_ctx_static;
 
+    sound_stream_ctx->audio_windows[0] = static_stream_buffer_0;
+    sound_stream_ctx->audio_windows[1] = static_stream_buffer_1;
+
+    // Open the sound file
     sound_stream_ctx->file_handle = kopen4group_stream(sounds[num]);
-    if (sound_stream_ctx->file_handle == -1)   return;
+    if (sound_stream_ctx->file_handle == -1) return;
 
+    // Get file length and validate header
     file_len = klseek_stream(sound_stream_ctx->file_handle, 0L, SEEK_END);
-    
-    // Read the largest possible header block layout once (44 bytes for WAV validation passes)
+    if (file_len <= audio_header_offset) {
+        kclose_stream(sound_stream_ctx->file_handle);
+        return;
+    }
+
     klseek_stream(sound_stream_ctx->file_handle, 0L, SEEK_SET);
-    kread_stream(sound_stream_ctx->file_handle, file_header_scratch, 0x2C); 
+    kread_stream(sound_stream_ctx->file_handle, file_header_scratch, 0x2C);
 
     // UNIVERSAL CONTAINER DETECTOR RESOLUTION PATHWAY
-    if (file_header_scratch[0] == 'R' && file_header_scratch[1] == 'I' && 
+    if (file_header_scratch[0] == 'R' && file_header_scratch[1] == 'I' &&
           file_header_scratch[2] == 'F' && file_header_scratch[3] == 'F')
     {
         // TARGET: STANDARD UNCOMPRESSED WAVE AUDIO (.WAV)
-        // Extract 32-bit sampling rate directly from byte offset 0x18 (24) bounds
         sound_stream_ctx->sample_rate = *(unsigned long *)&file_header_scratch[0x18];
         audio_header_offset = 0x2CL; // WAV headers take up exactly 44 bytes
     }
-    else if (file_header_scratch[0x14] == 1) 
+    else if (file_header_scratch[0x14] == 1)
     {
         // TARGET: CREATIVE VOICE AUDIO (.VOC)
         voc_rate_byte = file_header_scratch[0x1A];
@@ -281,9 +295,9 @@ void soundstream(short num)
     sound_stream_ctx->remaining_bytes = file_len - audio_header_offset;
     sound_stream_ctx->chunk_size = 16384L;
     sound_stream_ctx->current_chunk = 0;
-    
-    sound_stream_ctx->total_chunks = 
-      (sound_stream_ctx->remaining_bytes+sound_stream_ctx->chunk_size-1)/sound_stream_ctx->chunk_size;
+
+    sound_stream_ctx->total_chunks =
+      (sound_stream_ctx->remaining_bytes + sound_stream_ctx->chunk_size - 1) / sound_stream_ctx->chunk_size;
 
     if (sound_stream_ctx->total_chunks > 128) sound_stream_ctx->total_chunks = 128;
 
@@ -295,9 +309,20 @@ void soundstream(short num)
     }
 
     // Pre-fill startup double buffering page layouts safely
-    bytes_read_1 = kread_stream(sound_stream_ctx->file_handle, sound_stream_ctx->audio_windows, 16384);
-    bytes_read_2 = kread_stream(sound_stream_ctx->file_handle, sound_stream_ctx->audio_windows, 16384);
-    
+    memset(sound_stream_ctx->audio_windows[0], 0, 16384);
+    memset(sound_stream_ctx->audio_windows[1], 0, 16384);
+
+    bytes_read_1 = kread_stream(sound_stream_ctx->file_handle,
+                               sound_stream_ctx->audio_windows[0], 16384);
+    bytes_read_2 = kread_stream(sound_stream_ctx->file_handle,
+                               sound_stream_ctx->audio_windows[1], 16384);
+
+    if (bytes_read_1 <= 0) {
+        kclose_stream(sound_stream_ctx->file_handle);
+        audio_stream_active = 0;
+        return;
+    }
+
     sound_stream_ctx->remaining_bytes -= (bytes_read_1 + bytes_read_2);
     sound_stream_ctx->current_chunk_size = bytes_read_1;
 
@@ -309,10 +334,10 @@ void soundstream(short num)
     // FIRE DUAL CHANNEL RAW OUTPUT ALIGNED DIRECTLY TO HARDWARE MIXRATE
     sound_stream_ctx->voice_handle = MV_PlayRaw
     (
-        (char *)sound_stream_ctx->audio_windows, 
-        sound_stream_ctx->current_chunk_size, 
+        (char *)sound_stream_ctx->audio_windows[0],
+        sound_stream_ctx->current_chunk_size,
         MixRate,
-        pitch, 
+        pitch,
         LOUDESTVOLUME,
         LOUDESTVOLUME,
         LOUDESTVOLUME,
@@ -377,3 +402,30 @@ void pausesound(int toggle) // unused yet but it works
         }
     }
 }
+
+// Call like "pausesoundticks(120)" to make a 1s pause
+void pausesoundticks(long ticks)
+{
+    long startclock;
+    
+    if (FXDevice == NumSoundCards || SoundToggle == 0) 
+    {
+        return;
+    }
+    
+    pausesound(1);  // Pause immediately
+    startclock = totalclock;
+    
+    // Wait for specified ticks (120 ticks = 1 second in Duke3D)
+    while ((totalclock - startclock) < ticks)
+    {
+        // Small delay to prevent 100% CPU usage
+        if ((totalclock - startclock) > 0)
+        {
+            // Just wait for time to pass
+        }
+    }
+    
+    pausesound(0);  // Resume after delay
+}
+

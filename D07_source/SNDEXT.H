@@ -72,7 +72,7 @@ typedef struct
     int voice_handle;               // Returned active voice node token from MV_PlayRaw
     int active_page;                // Active toggle memory window selector (0 or 1)
     char playing;                   // Status flag monitoring state loops
-    byte audio_windows[2][16384];   // Double 16KB hardware ping-pong cache layers
+    byte *audio_windows[2];         // Just two pointers - 8 bytes in overall
     unsigned int sample_rate;       // Extracted VOC sample rate (fixed per file)
 } sound_stream_t;
 
@@ -82,8 +82,9 @@ typedef struct
 void FX_PlaySoundStream(const char *filename, char looped_flag);
 void FX_ServiceVocStream(void);
 void FX_StopVocStream(void);
-void pausesound(int toggle);
 void soundstream(short num);
+void pausesound(int toggle);
+void pausesoundticks(long ticks);
 
 // Global stream context pointer shared across the subsystem
 extern sound_stream_t *sound_stream_ctx;
