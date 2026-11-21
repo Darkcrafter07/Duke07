@@ -1,0 +1,25 @@
+bgm386.exe : bgm386.obj eng386.obj cash386.obj Mm386ti.obj alq2x.obj kdmeng.obj k.obj
+	wlink f bgm386 f eng386 f cash386 f Mm386ti f alq2x f kdmeng f k
+bud386.exe : bud386.obj eng386.obj cash386.obj alq2x.obj bst386.obj
+	wlink f bud386d f eng386 f cash386 f alq2x f bst386
+
+#we're doing 386 LQ-version of the eng386 so it's /3r for  instead of /3r now
+bgm386.obj : bgm386.c build.h names.h prag386.h
+	wcc386 bgm386 /3r /s /orb
+bud386.obj : bud386.c build.h prag386.h
+	wcc386 bud386 /3r /s /orb
+bst386.obj : bst386.c build.h
+	wcc386 bst386 /3r /s /orb
+cash386.obj : cash386.c prag386.h
+	wcc386 cash386 /3r /s /orb
+eng386.obj : eng386.c build.h prag386.h ves2.h
+	wcc386 eng386 /3r /s /orb
+alq2x.obj : alq2x.asm
+	wasm alq2x.asm
+
+Mm386ti.obj : Mm386ti.c
+	wcc386 Mm386ti /3r /s /or
+kdmeng.obj : kdmeng.c makefile.
+	wcc386 kdmeng /3r /s /or /d2
+k.obj : k.asm makefile.
+	wasm k.asm
