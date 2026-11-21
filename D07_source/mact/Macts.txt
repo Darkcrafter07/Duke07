@@ -1,0 +1,4 @@
+mact386.lib - doesn't have animlib as Duke3D codebase is
+              originally shipped with animlib code.
+              This one is used by default. Also patched
+              by "build mouse fix".

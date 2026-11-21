@@ -1,0 +1,1 @@
+wlib aud.lib @objs.txt
