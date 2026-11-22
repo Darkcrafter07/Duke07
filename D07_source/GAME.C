@@ -8049,7 +8049,7 @@ void main(int argc,char **argv)
             continue;
         }
 
-        if ((totalclock & 30) == 0) MIDISLIC_UpdatePlaylist(); // Update Low-Ram MIDI streaming each 30 ticks (1/4th of a second)
+        if ((totalclock & 31) == 0) MIDISLIC_UpdatePlaylist(); // Update Low-Ram MIDI streaming each 31st tick (1/4th of a second)
         cheats();
         nonsharedkeys();
 
