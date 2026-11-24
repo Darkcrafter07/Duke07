@@ -46,8 +46,9 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define LOUDESTVOLUME 150
 
 long backflag,numenvsnds;
-extern char midram;      // comline parameter declared in game.c
+extern char midram;          // comline parameter declared in game.c
 extern long midslicesize_kb; // force midi/xmidi chunk size for streaming, in game.c
+extern char midforcestream;  // engage MIDI/XMIDI streaming regardless of RAM
 
 //===================
 //=
@@ -348,32 +349,39 @@ void intomenusounds(void)
 
 //===========================================
 //=
-//= Music Playback regular and disk-cached XMI stream
+//= Music Playback regular and multi-file disk-cached XMI stream
 //=
 //===========================================
-#define XMI_TMP_FILENAME   "DUKE3DMU.TMP"
+#define XMI_SLICE_FMT      "D3DMU%03d.XMI"
+#define XMI_MAX_TMP_FILES  512
 
 static int m_midislic_busy = 0;
 static int m_midislic_activepage = 0;
-static int m_midislic_tmp_fd = -1;
 static int m_midislic_slice_count = 0;
+static int m_midislic_cur_slice = 0;
 static int m_midislic_disk_mode = 0;
 static unsigned int m_midislic_nextbytes = 0;
 
 static void MIDISLIC_CloseTempCache(void)
 {
-    if (m_midislic_tmp_fd != -1)
+    int i;
+    char fname[16];
+
+    for (i = 0; i < m_midislic_slice_count; i++)
     {
-        close(m_midislic_tmp_fd);
-        m_midislic_tmp_fd = -1;
+        sprintf(fname, XMI_SLICE_FMT, i);
+        unlink(fname);
     }
+
     m_midislic_slice_count = 0;
-    unlink(XMI_TMP_FILENAME);
+    m_midislic_cur_slice = 0;
 }
 
 static int MIDISLIC_BuildTempCache(const char *fn)
 {
     unsigned int sz;
+    int fd;
+    char fname[16];
 
     MIDISLIC_CloseTempCache();
 
@@ -382,28 +390,33 @@ static int MIDISLIC_BuildTempCache(const char *fn)
         return 0;
     }
 
-    m_midislic_tmp_fd = open(XMI_TMP_FILENAME, O_BINARY | O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
-    if (m_midislic_tmp_fd == -1)
-    {
-        MIDISLIC_CloseStream();
-        return 0;
-    }
-
-    // Render all slices once at level load (loop_song = 0) into a single sequential temp file
-    while (1)
+    // Render all slices once at level load (loop_song = 0) into separate 8.3 XMI files
+    while (m_midislic_slice_count < XMI_MAX_TMP_FILES)
     {
         sz = MIDISLIC_RenderNextSlice((unsigned char *)MusicPtr, m_mus_slice_limit, 0);
-        if (sz == 0)
+        if (sz <= 70)
         {
             break;
         }
-        if (write(m_midislic_tmp_fd, &sz, sizeof(sz)) != sizeof(sz) ||
-            write(m_midislic_tmp_fd, MusicPtr, sz) != (int)sz)
+
+        sprintf(fname, XMI_SLICE_FMT, m_midislic_slice_count);
+        fd = open(fname, O_BINARY | O_CREAT | O_TRUNC | O_WRONLY, S_IREAD | S_IWRITE);
+        if (fd == -1)
         {
             MIDISLIC_CloseStream();
             MIDISLIC_CloseTempCache();
             return 0;
         }
+
+        if (write(fd, MusicPtr, sz) != (int)sz)
+        {
+            close(fd);
+            MIDISLIC_CloseStream();
+            MIDISLIC_CloseTempCache();
+            return 0;
+        }
+
+        close(fd);
         m_midislic_slice_count++;
     }
 
@@ -415,27 +428,27 @@ static int MIDISLIC_BuildTempCache(const char *fn)
         return 0;
     }
 
-    lseek(m_midislic_tmp_fd, 0L, SEEK_SET);
+    m_midislic_cur_slice = 0;
     return 1;
 }
 
 static void MIDISLIC_NotifyFallbackFTA(void)
 {
-    // Use quote slot 122 (or any spare slot) to display fallback notice on HUD
     strcpy(fta_quotes[122], "TEMP FILE FAILED: STREAMING DIRECTLY (SLOWER)");
     FTA(122, &ps[myconnectindex]);
 }
 
 static void MIDISLIC_PrefillShadowPage(void)
 {
-    int got, shadow_page;
-    unsigned int sz32;
+    int shadow_page, fd;
+    long flen;
     unsigned char *dst;
+    char fname[16];
 
     shadow_page = m_midislic_activepage ^ 1;
     dst = (unsigned char *)MusicPtr + (shadow_page * m_mus_half_size);
 
-    // Fallback mode: direct on-the-fly rendering without temp file
+    // Fallback mode: direct on-the-fly rendering without temp files
     if (!m_midislic_disk_mode)
     {
         if (!MIDISLIC_IsStreamActive())
@@ -448,34 +461,45 @@ static void MIDISLIC_PrefillShadowPage(void)
         return;
     }
 
-    // Fast disk-cached mode
-    if (m_midislic_tmp_fd == -1 || m_midislic_slice_count <= 0)
+    // Multi-file disk-cached mode
+    if (m_midislic_slice_count <= 0)
     {
         m_midislic_nextbytes = 0;
         return;
     }
 
-    got = read(m_midislic_tmp_fd, &sz32, sizeof(sz32));
-    if (got == 0)
+    sprintf(fname, XMI_SLICE_FMT, m_midislic_cur_slice);
+    fd = open(fname, O_BINARY | O_RDONLY);
+    if (fd == -1)
     {
-        lseek(m_midislic_tmp_fd, 0L, SEEK_SET);
-        got = read(m_midislic_tmp_fd, &sz32, sizeof(sz32));
+        m_midislic_nextbytes = 0;
+        return;
     }
 
-    if (got != sizeof(sz32) || sz32 == 0 || sz32 > (unsigned int)m_mus_half_size)
+    flen = filelength(fd);
+    if (flen <= 0 || flen > m_mus_half_size)
     {
+        close(fd);
         m_midislic_nextbytes = 0;
         return;
     }
 
     memset(dst, 0, m_mus_half_size);
-    if (read(m_midislic_tmp_fd, dst, sz32) != (int)sz32)
+    if (read(fd, dst, (unsigned int)flen) != (int)flen)
     {
+        close(fd);
         m_midislic_nextbytes = 0;
         return;
     }
 
-    m_midislic_nextbytes = sz32;
+    close(fd);
+
+    m_midislic_nextbytes = (unsigned int)flen;
+    m_midislic_cur_slice++;
+    if (m_midislic_cur_slice >= m_midislic_slice_count)
+    {
+        m_midislic_cur_slice = 0;
+    }
 }
 
 static int MIDISLIC_SwapPage(int skip_reset)
@@ -487,7 +511,7 @@ static int MIDISLIC_SwapPage(int skip_reset)
     {
         return 0;
     }
-    if (m_midislic_disk_mode && m_midislic_tmp_fd == -1)
+    if (m_midislic_disk_mode && m_midislic_slice_count <= 0)
     {
         return 0;
     }
@@ -544,7 +568,7 @@ void MIDISLIC_UpdatePlaylist(void)
     {
         return;
     }
-    if (m_midislic_disk_mode && m_midislic_tmp_fd == -1)
+    if (m_midislic_disk_mode && m_midislic_slice_count <= 0)
     {
         return;
     }
@@ -593,7 +617,7 @@ void playmusic(char *fn)
 
     l = kfilelength(fp);
 
-    if (l < m_mus_buf_size)
+    if (!midforcestream && l < m_mus_buf_size)
     {
         memset(MusicPtr, 0, m_mus_buf_size);
         kread(fp, MusicPtr, l);
@@ -611,7 +635,6 @@ void playmusic(char *fn)
     }
     else
     {
-        // Notify via FTA only if temp file creation failed unexpectedly (not forced via /midram)
         if (!midram)
         {
             MIDISLIC_NotifyFallbackFTA();

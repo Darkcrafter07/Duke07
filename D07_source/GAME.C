@@ -6949,9 +6949,10 @@ void nonsharedkeys(void)
 
 
 char dist_slow = 0;
-char use_fpu = 1; // Use FPU to draw stuff like slopes by default
-char midram = 0; // Set to 1 by /midram command-line flag to force direct RAM streaming
+char use_fpu = 1;         // Use FPU to draw stuff like slopes by default
+char midram = 0;          // Set to 1 by /midram command-line flag to force direct RAM streaming
 long midslicesize_kb = 0; // Set via /MIDSLICESIZE# (in KB, 0 = auto)
+char midforcestream = 0;  // Set to 1 by /MIDFORCESTREAM to force streaming even for small files
 
 void comlinehelp(char **argv)
 {
@@ -6995,6 +6996,7 @@ void comlinehelp(char **argv)
         "Audio & Memory Options:",
         "  /NS               Disable sound effects",
         "  /NM               Disable music",
+        "  /MIDFORCESTREAM   Force MIDI/XMI streaming despite RAM amount",
         "  /MIDRAM           Force MIDI/XMI RAM streaming (no temp file)",
         "  /MIDSLICESIZE#    Force MIDI slice size in KB (16-1024, e.g. 32)",
         "",
@@ -7296,6 +7298,14 @@ void checkcommandline(int argc,char **argv)
                                 puts("Invalid /MIDSLICESIZE (use 16..1024 KB).");
                             }
                             break; // Exit the case so it doesn't trigger /M (monsters off)
+                        }
+
+                        // Check for /MIDFORCESTREAM (force streaming with 32 KB default slice)
+                        if (stricmp(c + 1, "idforcestream") == 0)
+                        {
+                            midforcestream = 1;
+                            puts("Forced MIDI/XMI streaming mode (32 KB default slices).");
+                            break;
                         }
 
                         // Check for the special 'midram' command first (case-insensitive).
