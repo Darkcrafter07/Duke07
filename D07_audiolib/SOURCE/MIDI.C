@@ -100,6 +100,7 @@ static int _MIDI_UserChannelVolume[ NUM_MIDI_CHANNELS ] =
 static midifuncs *_MIDI_Funcs = NULL;
 
 static int Reset = FALSE;
+static int _MIDI_SkipReset = 0;
 
 int MIDI_Tempo = 120;
 
@@ -960,9 +961,22 @@ static void XMI_ServiceTick( void )
             }
             else if ( cmd == 0x80 )
             {
+                // For the 32000 ticks timer not to work later and for it not to turn on a new same key note
+                // - DELETE that note from the queue
                 if ( _MIDI_Funcs->NoteOff )
                 {
                     _MIDI_Funcs->NoteOff( ch, d1, d2 );
+                }
+                for ( k = 0; k < _MIDI_XmiOffCount; k++ )
+                {
+                    if ( ( _MIDI_XmiOffQueue[k].status & 0x0F ) == ch && _MIDI_XmiOffQueue[k].note == d1 )
+                    {
+                        _MIDI_XmiOffCount--;
+                        _MIDI_XmiOffQueue[k].delta  = _MIDI_XmiOffQueue[_MIDI_XmiOffCount].delta;
+                        _MIDI_XmiOffQueue[k].status = _MIDI_XmiOffQueue[_MIDI_XmiOffCount].status;
+                        _MIDI_XmiOffQueue[k].note   = _MIDI_XmiOffQueue[_MIDI_XmiOffCount].note;
+                        break;
+                    }
                 }
             }
             else if ( cmd == 0xA0 )
@@ -1721,7 +1735,11 @@ void MIDI_StopSong
           _MIDI_IsXmi = 0;
       }
 
-      MIDI_Reset();
+      if ( !_MIDI_SkipReset )
+      {
+         MIDI_Reset();
+      }
+
       _MIDI_ResetTracks();
 
       if ( _MIDI_Funcs->ReleasePatches )
@@ -1742,6 +1760,75 @@ void MIDI_StopSong
       _MIDI_TotalMeasures = 0;
       }
    }
+
+/*---------------------------------------------------------------------
+   Function: MIDI_SkipNextReset
+
+   Skip reseting a song this time
+---------------------------------------------------------------------*/
+void MIDI_SkipNextReset( void )
+{
+   _MIDI_SkipReset = 1;
+}
+
+/*---------------------------------------------------------------------
+   Function: MIDI_HotSwapXmi
+
+   Mutes current notes and sets the pointer on the next slice
+---------------------------------------------------------------------*/
+int MIDI_HotSwapXmi( unsigned char *song )
+{
+    unsigned int   evnt_len;
+    unsigned char *evnt_ptr;
+    unsigned int   flags;
+
+    if ( !_MIDI_SongLoaded || !_MIDI_IsXmi || _MIDI_TrackPtr == NULL || song == NULL )
+    {
+        return( MIDI_Error );
+    }
+
+    if ( memcmp( song, "FORM", 4 ) != 0 )
+    {
+        return( MIDI_InvalidMidiFile );
+    }
+
+    evnt_len = 0;
+    evnt_ptr = XMI_LocateEvnt( song, &evnt_len );
+    if ( evnt_ptr == NULL )
+    {
+        return( MIDI_InvalidMidiFile );
+    }
+
+    flags = DisableInterrupts();
+
+    _MIDI_SongActive = FALSE;
+    XMI_FlushAllNoteOffs();
+
+    if ( _MIDI_Funcs && _MIDI_Funcs->LoadPatch )
+    {
+        XMI_LoadTimbres( song );
+    }
+
+    _MIDI_XmiEvntEnd   = evnt_ptr + evnt_len;
+    _MIDI_TrackPtr->start  = evnt_ptr;
+    _MIDI_TrackPtr->pos    = evnt_ptr;
+    _MIDI_TrackPtr->active = TRUE;
+
+    if ( *( evnt_ptr ) < 0x80 )
+    {
+        _MIDI_TrackPtr->delay = XMI_ReadDelay( _MIDI_TrackPtr );
+    }
+    else
+    {
+        _MIDI_TrackPtr->delay = 0;
+    }
+
+    _MIDI_ActiveTracks = 1;
+    _MIDI_SongActive   = TRUE;
+
+    RestoreInterrupts( flags );
+    return( MIDI_Ok );
+}
 
 /*---------------------------------------------------------------------
    Function: MIDI_PlaySong
@@ -1779,6 +1866,7 @@ int MIDI_PlaySong
 
    if ( _MIDI_Funcs == NULL )
       {
+      _MIDI_SkipReset = 0;
       return( MIDI_NullMidiModule );
       }
 
@@ -1789,6 +1877,7 @@ int MIDI_PlaySong
       evnt_ptr = XMI_LocateEvnt( song, &evnt_len );
       if ( evnt_ptr == NULL )
          {
+         _MIDI_SkipReset = 0;
          return( MIDI_InvalidMidiFile );
          }
 
@@ -1801,6 +1890,7 @@ int MIDI_PlaySong
       status = USRHOOKS_GetMem( &_MIDI_TrackPtr, _MIDI_TrackMemSize );
       if ( status != USRHOOKS_Ok )
          {
+         _MIDI_SkipReset = 0;
          return( MIDI_NoMemory );
          }
 
@@ -1811,6 +1901,7 @@ int MIDI_PlaySong
          _MIDI_TrackPtr     = NULL;
          _MIDI_TrackMemSize = 0;
          _MIDI_NumTracks    = 0;
+         _MIDI_SkipReset    = 0;
          return( MIDI_Error );
          }
 
@@ -1830,11 +1921,12 @@ int MIDI_PlaySong
          XMI_LoadTimbres( song );
          }
 
-      if ( !Reset )
+      if ( !Reset && !_MIDI_SkipReset )
          {
          MIDI_Reset();
          }
       Reset = FALSE;
+      _MIDI_SkipReset = 0;
 
       _MIDI_ResetTracks();
       _MIDI_TrackPtr->pos = evnt_ptr;
@@ -1858,6 +1950,8 @@ int MIDI_PlaySong
       }
 
    // Standard MIDI ("MThd") playback path
+   _MIDI_SkipReset = 0;
+
    if ( *( unsigned long * )song != MIDI_HEADER_SIGNATURE )
       {
       return( MIDI_InvalidMidiFile );
@@ -2816,6 +2910,7 @@ void MIDI_UnlockMemory
    DPMI_UnlockMemory( ( void * )&_MIDI_XmiOffQueue, sizeof( _MIDI_XmiOffQueue ) );
    DPMI_Unlock( _MIDI_XmiOffCount );
    DPMI_Unlock( _MIDI_IsXmi );
+   DPMI_Unlock( _MIDI_SkipReset );
    }
 
 
@@ -2868,6 +2963,7 @@ int MIDI_LockMemory
    status |= DPMI_LockMemory( ( void * )&_MIDI_XmiOffQueue, sizeof( _MIDI_XmiOffQueue ) );
    status |= DPMI_Lock( _MIDI_XmiOffCount );
    status |= DPMI_Lock( _MIDI_IsXmi );
+   status |= DPMI_Lock( _MIDI_SkipReset );
 
    if ( status != DPMI_Ok )
       {

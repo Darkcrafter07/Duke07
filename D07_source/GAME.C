@@ -6950,35 +6950,148 @@ void nonsharedkeys(void)
 
 char dist_slow = 0;
 char use_fpu = 1; // Use FPU to draw stuff like slopes by default
+char midram = 0; // Set to 1 by /midram command-line flag to force direct RAM streaming
 
 void comlinehelp(char **argv)
 {
-    printf("Command line help.  %s [/flags...]\n",argv[0]);
-    puts(" ?, /?         This help message");
-    puts(" /l##          Level (1-11)");
-    puts(" /v#           Volume (1-4)");
-    puts(" /s#           Skill (1-4)");
-    puts(" /r            Record demo");
-    puts(" /dFILE        Start to play demo FILE");
-    puts(" /distslow     Draw far-scene less often to speed-up");
-    puts(" /m            No monsters");
-    puts(" /ns           No sound");
-    puts(" /nm           No music");
-    puts(" /nofpu        Don't use FPU path to draw stuff like slopes");
-    puts(" /t#           Respawn, 1 = Monsters, 2 = Items, 3 = Inventory, x = All");
-    puts(" /c#           MP mode, 1 = dukeMatch(spawn), 2 = Coop, 3 = dukematch(no spawn)");
-    puts(" /q#           Fake multiplayer (2-8 players)");
-    puts(" /a            Use player AI (fake multiplayer only)");
-    puts(" /i#           Network mode (1/0) (multiplayer only) (default == 1)");
-    puts(" /f#           Send fewer packets (1, 2, 4) (multiplayer only)");
-    puts(" /gFILE, /g... Use multiple group files (must be last on command line)");
-    puts(" /xFILE        Compile FILE (default GAME.CON)");
-    puts(" /u#########   User's favorite weapon order (default: 3425689071)");
-    puts(" /#            Load and run a game (slot 0-9)");
-    puts(" /z            Skip memory check");
-    puts(" -map FILE     Use a map FILE");
-    puts(" -name NAME    Foward NAME");
-    printf(" -net          Net mode game");
+    int top = 0, max_top, r, ch;
+    int total_lines, page_rows, redraw = 1;
+    union REGS regs;
+
+    static const char *help_lines[] = {
+        "Usage: DUKE3D [files] [options]",
+        "Example: DUKE3D E1L8.MAP /VN /M",
+        "",
+        "Files:",
+        "  [filename.map]    Load custom user map",
+        "  [filename.con]    Load custom CON script",
+        "  [filename.grp]    Load custom GRP archive",
+        "",
+        "Game & Network Options:",
+        "  /A                Use fake AI players in multiplayer",
+        "  /C#               Select multiplayer mode (1-3)",
+        "  /D[filename]      Record or play back a demo",
+        "  /F#               Use # frames per packet (network)",
+        "  /G[filename.grp]  Load additional GRP file",
+        "  /H[filename.def]  Use custom RTS/DEF file",
+        "  /I#               Enable/disable network mode",
+        "  /J[dir]           Add directory to search path",
+        "  /L#               Warp to level # (1-11)",
+        "  /M                Disable monsters (no enemies)",
+        "  /N#               Network mode: /N0 (coop), /N1 (spawn)",
+        "  /O                Enable respawning sprites",
+        "  /P#               Select player palette color",
+        "  /Q#               Auto-quit after # games",
+        "  /R                Record demo",
+        "  /S#               Select skill level (1-4)",
+        "  /T#               Respawn mode: 1=monsters, 2=items, 3=all",
+        "  /U                Enable extra/cheat keys",
+        "  /V#               Warp to volume # (1-4)",
+        "  /W                Show coordinates / debug info",
+        "  /X[filename.con]  Compile/load custom CON file",
+        "  /Z#               Set network buffer jitter",
+        "",
+        "Audio & Memory Options:",
+        "  /NS               Disable sound effects",
+        "  /NM               Disable music",
+        "  /MIDRAM           Force MIDI/XMI RAM streaming (no temp file)",
+        "",
+        "Video & Hardware Options:",
+        "  /SETUP            Launch setup configuration",
+        "  /CONFIG[file]     Use alternate CFG file",
+        "  /NOFPU            Disable FPU math optimizations",
+        "  /NOMMX            Disable MMX assembly overlays",
+        "  /DISTSLOW         Enable distance wall LOD culling",
+        "  /? or /HELP       Show this command-line reference"
+    };
+
+    total_lines = (int)(sizeof(help_lines) / sizeof(help_lines[0]));
+    page_rows = 22; // Rows 1..22 for content, row 0 header, row 23-24 footer
+    max_top = (total_lines > page_rows) ? (total_lines - page_rows) : 0;
+
+    // Ensure standard 80x25 color text mode (mode 03h)
+    regs.w.ax = 0x0003;
+    int386(0x10, &regs, &regs);
+
+    while (1)
+    {
+        if (redraw)
+        {
+            // Move cursor to top-left (0, 0)
+            regs.h.ah = 0x02;
+            regs.h.bh = 0;
+            regs.w.dx = 0x0000;
+            int386(0x10, &regs, &regs);
+
+            printf("==================== DUKE NUKEM 3D - COMMAND LINE HELP ====================\r\n");
+
+            for (r = 0; r < page_rows; r++)
+            {
+                if (top + r < total_lines)
+                {
+                    printf(" %-77s\r\n", help_lines[top + r]);
+                }
+                else
+                {
+                    printf(" %-77s\r\n", "");
+                }
+            }
+
+            printf("----------------------------------------------------------------------------\r\n");
+            printf(" [UP/DOWN] Scroll  [PGUP/PGDN] Page  [ESC/ENTER] Exit   Lines %2d-%2d of %2d  ",
+                top + 1,
+                (top + page_rows < total_lines) ? (top + page_rows) : total_lines,
+                total_lines);
+
+            redraw = 0;
+        }
+
+        ch = getch();
+        if (ch == 0 || ch == 0xE0)
+        {
+            ch = getch();
+            if (ch == 72 && top > 0)             // Up arrow
+            {
+                top--;
+                redraw = 1;
+            }
+            else if (ch == 80 && top < max_top)  // Down arrow
+            {
+                top++;
+                redraw = 1;
+            }
+            else if (ch == 73 && top > 0)        // Page Up
+            {
+                top -= page_rows;
+                if (top < 0) top = 0;
+                redraw = 1;
+            }
+            else if (ch == 81 && top < max_top)  // Page Down
+            {
+                top += page_rows;
+                if (top > max_top) top = max_top;
+                redraw = 1;
+            }
+            else if (ch == 71 && top != 0)       // Home
+            {
+                top = 0;
+                redraw = 1;
+            }
+            else if (ch == 79 && top != max_top) // End
+            {
+                top = max_top;
+                redraw = 1;
+            }
+        }
+        else if (ch == 27 || ch == 13 || ch == 32 || ch == 'q' || ch == 'Q')
+        {
+            break;
+        }
+    }
+
+    // Clear screen cleanly on exit
+    regs.w.ax = 0x0003;
+    int386(0x10, &regs, &regs);
 }
 
 void checkcommandline(int argc,char **argv)
@@ -7154,6 +7267,16 @@ void checkcommandline(int argc,char **argv)
                         break;
                     case 'm':
                     case 'M':
+                        // Check for the special 'midram' command first (case-insensitive).
+                        // 'c' currently points to 'm' or 'M', so 'c+1' points to "idram".
+                        if (stricmp(c + 1, "idram") == 0)
+                        {
+                            midram = 1;
+                            puts("MIDI/XMI RAM streaming forced (no temp file).");
+                            break; // Exit the case so it doesn't trigger /M (monsters off)
+                        }
+
+                        // Original /M handling: disable monsters if not /MAP
                         if( *(c+1) != 'a' && *(c+1) != 'A' )
                         {
                             ud.m_monsters_off = 1;
@@ -7208,7 +7331,6 @@ void checkcommandline(int argc,char **argv)
                         printf("Play demo %s.\n",c);
                         strcpy(firstdemofile,c);
                         break;
-
                     case 'l':
                     case 'L':
                         ud.warp_on = 1;
@@ -7219,20 +7341,18 @@ void checkcommandline(int argc,char **argv)
                     case 'J':
 #ifdef VOLUMEALL
     #ifdef AUSTRALIA
-        printf("duke Nukem 3D (AUSSIE FULL VERSION) v%s\n",VERSION);
+                        printf("duke Nukem 3D (AUSSIE FULL VERSION) v%s\n",VERSION);
     #else
-        printf("duke Nukem 3D (FULL VERSION) v%s\n",VERSION);
+                        printf("duke Nukem 3D (FULL VERSION) v%s\n",VERSION);
     #endif
 #else
     #ifdef AUSTRALIA
-        printf("duke Nukem 3D (AUSSIE SHAREWARE) v%s\n",VERSION);
+                        printf("duke Nukem 3D (AUSSIE SHAREWARE) v%s\n",VERSION);
     #else
-        printf("duke Nukem 3D (SHAREWARE) v%s\n",VERSION);
+                        printf("duke Nukem 3D (SHAREWARE) v%s\n",VERSION);
     #endif
 #endif
-
                         exit(0);
-
                     case 'v':
                     case 'V':
                         c++;
@@ -7277,7 +7397,6 @@ void checkcommandline(int argc,char **argv)
                                     ud.wchoice[0][9] = 1;
                                 else
                                     ud.wchoice[0][j] = 2;
-
                                 j++;
                             }
                         }
@@ -7295,7 +7414,6 @@ void checkcommandline(int argc,char **argv)
                             ud.wchoice[0][8] = 9;
                             ud.wchoice[0][9] = 1;
                         }
-
                         break;
                 }
             }

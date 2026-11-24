@@ -39,7 +39,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define LOUDESTVOLUME 150
 
 long backflag,numenvsnds;
-
+extern char midram; // comline parameter declared in game.c
 
 
 //===================
@@ -245,93 +245,227 @@ void intomenusounds(void)
 
 //===========================================
 //=
-//=               MIDI/XMIDI
-//= Music Playback regular and low-ram stream
+//= Music Playback regular and disk-cached XMI stream
 //=
 //===========================================
 #define XMI_HALF_BUF_SIZE  36000L
 #define XMI_SLICE_LIMIT    32000U
+#define XMI_TMP_FILENAME   "DUKE3DMU.TMP"
 
-static int g_MIDISLIC_busy = 0;
-static int g_MIDISLIC_active_page = 0;
-static unsigned int g_MIDISLIC_next_bytes = 0;
+static int m_midislic_busy = 0;
+static int m_midislic_activepage = 0;
+static unsigned int m_midislic_nextbytes = 0;
+static int m_midislic_tmp_fd = -1;
+static int m_midislic_slice_count = 0;
+static int m_midislic_disk_mode = 0;
+
+static void MIDISLIC_CloseTempCache(void)
+{
+    if (m_midislic_tmp_fd != -1)
+    {
+        close(m_midislic_tmp_fd);
+        m_midislic_tmp_fd = -1;
+    }
+    m_midislic_slice_count = 0;
+    unlink(XMI_TMP_FILENAME);
+}
+
+static int MIDISLIC_BuildTempCache(const char *fn)
+{
+    unsigned int sz;
+    unsigned short sz16;
+
+    MIDISLIC_CloseTempCache();
+
+    if (!MIDISLIC_OpenStreamFile(fn))
+    {
+        return 0;
+    }
+
+    m_midislic_tmp_fd = open(XMI_TMP_FILENAME, O_BINARY | O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
+    if (m_midislic_tmp_fd == -1)
+    {
+        MIDISLIC_CloseStream();
+        return 0;
+    }
+
+    // Render all slices once at level load (loop_song = 0) into a single sequential temp file
+    while (1)
+    {
+        sz = MIDISLIC_RenderNextSlice((unsigned char *)MusicPtr, XMI_SLICE_LIMIT, 0);
+        if (sz == 0)
+        {
+            break;
+        }
+        sz16 = (unsigned short)sz;
+        if (write(m_midislic_tmp_fd, &sz16, sizeof(sz16)) != sizeof(sz16) ||
+            write(m_midislic_tmp_fd, MusicPtr, sz) != (int)sz)
+        {
+            MIDISLIC_CloseStream();
+            MIDISLIC_CloseTempCache();
+            return 0;
+        }
+        m_midislic_slice_count++;
+    }
+
+    MIDISLIC_CloseStream();
+
+    if (m_midislic_slice_count == 0)
+    {
+        MIDISLIC_CloseTempCache();
+        return 0;
+    }
+
+    lseek(m_midislic_tmp_fd, 0L, SEEK_SET);
+    return 1;
+}
+
+static void MIDISLIC_NotifyFallbackFTA(void)
+{
+    // Use quote slot 122 (or any spare slot) to display fallback notice on HUD
+    strcpy(fta_quotes[122], "TEMP FILE FAILED: STREAMING DIRECTLY (SLOWER)");
+    FTA(122, &ps[myconnectindex]);
+}
+
 static void MIDISLIC_PrefillShadowPage(void)
 {
-    int shadow_page;
+    int got, shadow_page;
+    unsigned short sz16;
     unsigned char *dst;
 
-    if (!MIDISLIC_IsStreamActive())
+    shadow_page = m_midislic_activepage ^ 1;
+    dst = (unsigned char *)MusicPtr + (shadow_page * XMI_HALF_BUF_SIZE);
+
+    // Fallback mode: direct on-the-fly rendering without temp file
+    if (!m_midislic_disk_mode)
     {
-        g_MIDISLIC_next_bytes = 0;
+        if (!MIDISLIC_IsStreamActive())
+        {
+            m_midislic_nextbytes = 0;
+            return;
+        }
+        memset(dst, 0, XMI_HALF_BUF_SIZE);
+        m_midislic_nextbytes = MIDISLIC_RenderNextSlice(dst, XMI_SLICE_LIMIT, 1);
         return;
     }
 
-    shadow_page = g_MIDISLIC_active_page ^ 1;
-    // Use the DPMI-locked MusicPtr split into two 36,000-byte halves!
-    dst = (unsigned char *)MusicPtr + (shadow_page * XMI_HALF_BUF_SIZE);
+    // Fast disk-cached mode
+    if (m_midislic_tmp_fd == -1 || m_midislic_slice_count <= 0)
+    {
+        m_midislic_nextbytes = 0;
+        return;
+    }
+
+    got = read(m_midislic_tmp_fd, &sz16, sizeof(sz16));
+    if (got == 0)
+    {
+        lseek(m_midislic_tmp_fd, 0L, SEEK_SET);
+        got = read(m_midislic_tmp_fd, &sz16, sizeof(sz16));
+    }
+
+    if (got != sizeof(sz16) || sz16 == 0 || sz16 > XMI_HALF_BUF_SIZE)
+    {
+        m_midislic_nextbytes = 0;
+        return;
+    }
 
     memset(dst, 0, XMI_HALF_BUF_SIZE);
-    g_MIDISLIC_next_bytes = MIDISLIC_RenderNextSlice(dst, XMI_SLICE_LIMIT, 1);
+    if (read(m_midislic_tmp_fd, dst, sz16) != (int)sz16)
+    {
+        m_midislic_nextbytes = 0;
+        return;
+    }
+
+    m_midislic_nextbytes = (unsigned int)sz16;
 }
 
-static int MIDISLIC_SwapPage(void)
+static int MIDISLIC_SwapPage(int skip_reset)
 {
-    int shadow_page;
+    int shadow_page, play_status;
     unsigned char *play_ptr;
 
-    if (g_MIDISLIC_busy || !MIDISLIC_IsStreamActive())
+    if (m_midislic_busy)
+    {
+        return 0;
+    }
+    if (m_midislic_disk_mode && m_midislic_tmp_fd == -1)
+    {
+        return 0;
+    }
+    if (!m_midislic_disk_mode && !MIDISLIC_IsStreamActive())
     {
         return 0;
     }
 
-    if (g_MIDISLIC_next_bytes == 0)
+    if (m_midislic_nextbytes == 0)
     {
         MIDISLIC_CloseStream();
+        MIDISLIC_CloseTempCache();
+        m_midislic_disk_mode = 0;
         return 0;
     }
 
-    g_MIDISLIC_busy = 1;
+    m_midislic_busy = 1;
 
-    shadow_page = g_MIDISLIC_active_page ^ 1;
+    shadow_page = m_midislic_activepage ^ 1;
     play_ptr = (unsigned char *)MusicPtr + (shadow_page * XMI_HALF_BUF_SIZE);
 
-    if (MUSIC_PlaySong(play_ptr, MUSIC_PlayOnce) != MUSIC_Ok)
+    if (skip_reset)
+    {
+        play_status = MIDI_HotSwapXmi(play_ptr);
+    }
+    else
+    {
+        play_status = MUSIC_PlaySong(play_ptr, MUSIC_PlayOnce);
+    }
+
+    if (play_status != MUSIC_Ok)
     {
         MIDISLIC_CloseStream();
-        g_MIDISLIC_busy = 0;
+        MIDISLIC_CloseTempCache();
+        m_midislic_disk_mode = 0;
+        m_midislic_busy = 0;
         return 0;
     }
 
-    g_MIDISLIC_active_page = shadow_page;
+    m_midislic_activepage = shadow_page;
     MIDISLIC_PrefillShadowPage();
 
-    g_MIDISLIC_busy = 0;
+    m_midislic_busy = 0;
     return 1;
 }
 
 void MIDISLIC_UpdatePlaylist(void)
 {
-    if (g_MIDISLIC_busy || !MIDISLIC_IsStreamActive() || MusicToggle == 0)
+    if (m_midislic_busy || MusicToggle == 0)
+    {
+        return;
+    }
+    if (!m_midislic_disk_mode && !MIDISLIC_IsStreamActive())
+    {
+        return;
+    }
+    if (m_midislic_disk_mode && m_midislic_tmp_fd == -1)
     {
         return;
     }
 
-    // Trigger strictly when Apogee finishes current page
     if (!MUSIC_SongPlaying())
     {
-        MIDISLIC_SwapPage();
+        MIDISLIC_SwapPage(1);
     }
 }
 
-// Call it in game.c instead of MUSIC_StopSong()
 void MIDISLIC_StopMusic(void)
 {
-    g_MIDISLIC_busy = 1;
+    m_midislic_busy = 1;
     MIDISLIC_CloseStream();
-    g_MIDISLIC_active_page = 0;
-    g_MIDISLIC_next_bytes = 0;
+    MIDISLIC_CloseTempCache();
+    m_midislic_disk_mode = 0;
+    m_midislic_activepage = 0;
+    m_midislic_nextbytes = 0;
     MUSIC_StopSong();
-    g_MIDISLIC_busy = 0;
+    m_midislic_busy = 0;
 }
 
 void playmusic(char *fn)
@@ -343,16 +477,18 @@ void playmusic(char *fn)
     if (MusicDevice == NumSoundCards)     return;
     if (eightytwofifty && numplayers > 1) return;
 
-    g_MIDISLIC_busy = 1;
+    m_midislic_busy = 1;
     MUSIC_StopSong();
     MIDISLIC_CloseStream();
-    g_MIDISLIC_active_page = 0;
-    g_MIDISLIC_next_bytes = 0;
+    MIDISLIC_CloseTempCache();
+    m_midislic_disk_mode = 0;
+    m_midislic_activepage = 0;
+    m_midislic_nextbytes = 0;
 
     fp = kopen4load(fn, 0);
     if (fp == -1)
     {
-        g_MIDISLIC_busy = 0;
+        m_midislic_busy = 0;
         return;
     }
 
@@ -364,24 +500,36 @@ void playmusic(char *fn)
         kread(fp, MusicPtr, l);
         kclose(fp);
         MUSIC_PlaySong(MusicPtr, MUSIC_LoopSong);
-        g_MIDISLIC_busy = 0;
+        m_midislic_busy = 0;
         return;
     }
 
     kclose(fp);
 
-    if (!MIDISLIC_OpenStreamFile(fn))
+    if (!midram && MIDISLIC_BuildTempCache(fn))
     {
-        g_MIDISLIC_busy = 0;
-        return;
+        m_midislic_disk_mode = 1;
+    }
+    else
+    {
+        // Notify via FTA only if temp file creation failed unexpectedly (not forced via /midram)
+        if (!midram)
+        {
+            MIDISLIC_NotifyFallbackFTA();
+        }
+        if (!MIDISLIC_OpenStreamFile(fn))
+        {
+            m_midislic_busy = 0;
+            return;
+        }
+        m_midislic_disk_mode = 0;
     }
 
-    // Pre-fill page 1 first, then SwapPage() starts playing page 1 and pre-fills page 0
-    g_MIDISLIC_active_page = 0;
+    m_midislic_activepage = 0;
     MIDISLIC_PrefillShadowPage();
 
-    g_MIDISLIC_busy = 0;
-    MIDISLIC_SwapPage();
+    m_midislic_busy = 0;
+    MIDISLIC_SwapPage(0);
 }
 
 void playmusicold(char *fn)

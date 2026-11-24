@@ -94,5 +94,7 @@ void MIDI_GetSongLength( songposition *pos );
 void MIDI_LoadTimbres( void );
 void MIDI_UnlockMemory( void );
 int  MIDI_LockMemory( void );
+void MIDI_SkipNextReset( void );
+int MIDI_HotSwapXmi( unsigned char *song );
 
 #endif
