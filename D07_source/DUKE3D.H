@@ -285,7 +285,7 @@ extern short numanimwalls,probey,lastprobey;
 
 extern char *mymembuf;
 extern char typebuflen,typebuf[41];
-extern char MusicPtr[72000];
+//extern char MusicPtr[72000]; // now done via allocache per RAM computer configuration
 extern long msx[2048],msy[2048];
 extern short cyclers[MAXCYCLERS][6],numcyclers;
 extern char myname[32];

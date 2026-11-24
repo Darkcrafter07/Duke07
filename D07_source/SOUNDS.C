@@ -1,6 +1,7 @@
 //-------------------------------------------------------------------------
 /*
 Copyright (C) 1996, 2003 - 3D Realms Entertainment
+Copyright (C) 2026 - Darkcrafter07
 
 This file is part of Duke Nukem 3D version 1.5 - Atomic Edition
 
@@ -33,14 +34,104 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "music.h"
 #include "util_lib.h"
 #include "duke3d.h"
+
+#include <io.h>
+#include <fcntl.h>
 #include "midslic.h"
+
+#include <stdlib.h>
+#include <malloc.h>
 
 
 #define LOUDESTVOLUME 150
 
 long backflag,numenvsnds;
-extern char midram; // comline parameter declared in game.c
+extern char midram;      // comline parameter declared in game.c
+extern long midslicesize_kb; // force midi/xmidi chunk size for streaming, in game.c
 
+//===================
+//=
+//= Initialize memory
+//=
+//===================
+static long m_mus_buf_size = MUS_BUF_8MB;
+static long m_mus_half_size = (MUS_BUF_8MB >> 1);
+static unsigned int m_mus_slice_limit = SLICE_LIMIT_8MB;
+static char *MusicPtr = NULL; // RAM amount dependent initial MIDI buffer size
+static char m_mus_cache_lock = 255; // 255 = permanent lock in Build cache1d
+
+static void calctotalmemory(void)
+{
+    unsigned int forced_limit = 0;
+    long needed_buf = 0;
+
+    if (totalmemory >= MUS_HEAP_64MB)
+    {
+        m_mus_buf_size = MUS_BUF_64MB;
+        m_mus_slice_limit = SLICE_LIMIT_64MB;
+    }
+    else if (totalmemory >= MUS_HEAP_32MB)
+    {
+        m_mus_buf_size = MUS_BUF_32MB;
+        m_mus_slice_limit = SLICE_LIMIT_32MB;
+    }
+    else if (totalmemory >= MUS_HEAP_24MB)
+    {
+        m_mus_buf_size = MUS_BUF_24MB;
+        m_mus_slice_limit = SLICE_LIMIT_24MB;
+    }
+    else if (totalmemory >= MUS_HEAP_16MB)
+    {
+        m_mus_buf_size = MUS_BUF_16MB;
+        m_mus_slice_limit = SLICE_LIMIT_16MB;
+    }
+    else if (totalmemory >= MUS_HEAP_12MB)
+    {
+        m_mus_buf_size = MUS_BUF_12MB;
+        m_mus_slice_limit = SLICE_LIMIT_12MB;
+    }
+    else if (totalmemory >= MUS_HEAP_10MB)
+    {
+        m_mus_buf_size = MUS_BUF_10MB;
+        m_mus_slice_limit = SLICE_LIMIT_10MB;
+    }
+    else
+    {
+        m_mus_buf_size = MUS_BUF_8MB;
+        m_mus_slice_limit = SLICE_LIMIT_8MB;
+    }
+
+    m_mus_cache_lock = 255;
+
+    if (midslicesize_kb > 0)
+    {
+        forced_limit = (unsigned int)(midslicesize_kb * 1024L);
+        needed_buf = ((long)forced_limit * 2L) + 8192L;
+   
+        m_mus_slice_limit = forced_limit;
+        // Expand MusicPtr if forced slice is larger than the RAM-tier buffer
+        if (needed_buf > m_mus_buf_size)
+        {
+            m_mus_buf_size = needed_buf;
+        }
+    }
+
+    allocache((long *)&MusicPtr, m_mus_buf_size, &m_mus_cache_lock);
+    if (MusicPtr == NULL)
+    {
+        m_mus_buf_size = MUS_BUF_8MB;
+        m_mus_slice_limit = SLICE_LIMIT_8MB;
+        allocache((long *)&MusicPtr, m_mus_buf_size, &m_mus_cache_lock);
+        if (MusicPtr == NULL)
+        {
+            Error("Out of memory allocating MusicPtr!");
+        }
+    }
+
+    m_mus_half_size = m_mus_buf_size >> 1;
+    memset(MusicPtr, 0, (size_t)m_mus_buf_size);
+    DPMI_LockMemory(MusicPtr, (unsigned)m_mus_buf_size);
+}
 
 //===================
 //=
@@ -151,6 +242,9 @@ void MusicStartup(void)
         FX_SetupSoundBlaster(BlasterConfig, (int *)&MaxVoices,
                         (int *)&MaxBits, (int *)&MaxChannels);
     }
+
+    calctotalmemory();
+
     status = MUSIC_Init(MusicDevice, MidiPort);
 
     if (status == MUSIC_Ok)
@@ -183,8 +277,17 @@ void MusicShutdown(void)
 {
     int32 status;
 
-    // if they chose None lets return
-    if ( (MusicDevice == NumSoundCards) || (eightytwofifty && numplayers > 1) )
+    MIDISLIC_CloseStream();
+    MIDISLIC_CloseTempCache();
+    if (MusicPtr != NULL)
+    {
+        DPMI_UnlockMemory(MusicPtr, (unsigned)m_mus_buf_size);
+        m_mus_cache_lock = 1;
+        suckcache((long *)MusicPtr);
+        MusicPtr = NULL;
+    }
+
+    if ((MusicDevice == NumSoundCards) || (eightytwofifty && numplayers > 1))
     {
         return;
     }
@@ -248,16 +351,14 @@ void intomenusounds(void)
 //= Music Playback regular and disk-cached XMI stream
 //=
 //===========================================
-#define XMI_HALF_BUF_SIZE  36000L
-#define XMI_SLICE_LIMIT    32000U
 #define XMI_TMP_FILENAME   "DUKE3DMU.TMP"
 
 static int m_midislic_busy = 0;
 static int m_midislic_activepage = 0;
-static unsigned int m_midislic_nextbytes = 0;
 static int m_midislic_tmp_fd = -1;
 static int m_midislic_slice_count = 0;
 static int m_midislic_disk_mode = 0;
+static unsigned int m_midislic_nextbytes = 0;
 
 static void MIDISLIC_CloseTempCache(void)
 {
@@ -273,7 +374,6 @@ static void MIDISLIC_CloseTempCache(void)
 static int MIDISLIC_BuildTempCache(const char *fn)
 {
     unsigned int sz;
-    unsigned short sz16;
 
     MIDISLIC_CloseTempCache();
 
@@ -292,13 +392,12 @@ static int MIDISLIC_BuildTempCache(const char *fn)
     // Render all slices once at level load (loop_song = 0) into a single sequential temp file
     while (1)
     {
-        sz = MIDISLIC_RenderNextSlice((unsigned char *)MusicPtr, XMI_SLICE_LIMIT, 0);
+        sz = MIDISLIC_RenderNextSlice((unsigned char *)MusicPtr, m_mus_slice_limit, 0);
         if (sz == 0)
         {
             break;
         }
-        sz16 = (unsigned short)sz;
-        if (write(m_midislic_tmp_fd, &sz16, sizeof(sz16)) != sizeof(sz16) ||
+        if (write(m_midislic_tmp_fd, &sz, sizeof(sz)) != sizeof(sz) ||
             write(m_midislic_tmp_fd, MusicPtr, sz) != (int)sz)
         {
             MIDISLIC_CloseStream();
@@ -330,11 +429,11 @@ static void MIDISLIC_NotifyFallbackFTA(void)
 static void MIDISLIC_PrefillShadowPage(void)
 {
     int got, shadow_page;
-    unsigned short sz16;
+    unsigned int sz32;
     unsigned char *dst;
 
     shadow_page = m_midislic_activepage ^ 1;
-    dst = (unsigned char *)MusicPtr + (shadow_page * XMI_HALF_BUF_SIZE);
+    dst = (unsigned char *)MusicPtr + (shadow_page * m_mus_half_size);
 
     // Fallback mode: direct on-the-fly rendering without temp file
     if (!m_midislic_disk_mode)
@@ -344,8 +443,8 @@ static void MIDISLIC_PrefillShadowPage(void)
             m_midislic_nextbytes = 0;
             return;
         }
-        memset(dst, 0, XMI_HALF_BUF_SIZE);
-        m_midislic_nextbytes = MIDISLIC_RenderNextSlice(dst, XMI_SLICE_LIMIT, 1);
+        memset(dst, 0, m_mus_half_size);
+        m_midislic_nextbytes = MIDISLIC_RenderNextSlice(dst, m_mus_slice_limit, 1);
         return;
     }
 
@@ -356,27 +455,27 @@ static void MIDISLIC_PrefillShadowPage(void)
         return;
     }
 
-    got = read(m_midislic_tmp_fd, &sz16, sizeof(sz16));
+    got = read(m_midislic_tmp_fd, &sz32, sizeof(sz32));
     if (got == 0)
     {
         lseek(m_midislic_tmp_fd, 0L, SEEK_SET);
-        got = read(m_midislic_tmp_fd, &sz16, sizeof(sz16));
+        got = read(m_midislic_tmp_fd, &sz32, sizeof(sz32));
     }
 
-    if (got != sizeof(sz16) || sz16 == 0 || sz16 > XMI_HALF_BUF_SIZE)
+    if (got != sizeof(sz32) || sz32 == 0 || sz32 > (unsigned int)m_mus_half_size)
     {
         m_midislic_nextbytes = 0;
         return;
     }
 
-    memset(dst, 0, XMI_HALF_BUF_SIZE);
-    if (read(m_midislic_tmp_fd, dst, sz16) != (int)sz16)
+    memset(dst, 0, m_mus_half_size);
+    if (read(m_midislic_tmp_fd, dst, sz32) != (int)sz32)
     {
         m_midislic_nextbytes = 0;
         return;
     }
 
-    m_midislic_nextbytes = (unsigned int)sz16;
+    m_midislic_nextbytes = sz32;
 }
 
 static int MIDISLIC_SwapPage(int skip_reset)
@@ -408,7 +507,7 @@ static int MIDISLIC_SwapPage(int skip_reset)
     m_midislic_busy = 1;
 
     shadow_page = m_midislic_activepage ^ 1;
-    play_ptr = (unsigned char *)MusicPtr + (shadow_page * XMI_HALF_BUF_SIZE);
+    play_ptr = (unsigned char *)MusicPtr + (shadow_page * m_mus_half_size);
 
     if (skip_reset)
     {
@@ -494,9 +593,9 @@ void playmusic(char *fn)
 
     l = kfilelength(fp);
 
-    if (l < MAX_MUSIC_BUF_BYTES)
+    if (l < m_mus_buf_size)
     {
-        memset(MusicPtr, 0, MAX_MUSIC_BUF_BYTES);
+        memset(MusicPtr, 0, m_mus_buf_size);
         kread(fp, MusicPtr, l);
         kclose(fp);
         MUSIC_PlaySong(MusicPtr, MUSIC_LoopSong);
@@ -532,7 +631,7 @@ void playmusic(char *fn)
     MIDISLIC_SwapPage(0);
 }
 
-void playmusicold(char *fn)
+void playmusicold(char *fn) // don't touch it
 {
     long l;
     short fp;
@@ -815,9 +914,9 @@ int xyzsound(short num, short i, long x, long y, long z)
 
 void sound(short num)
 {
-    short pitch, pitche, pitchs, cx;
     int voice;
     long start;
+    short pitch, pitche, pitchs, cx;
 
     if (FXDevice == NumSoundCards)             return;
     if (SoundToggle == 0)                      return;
@@ -1089,6 +1188,8 @@ void TestCallBack(long num)
 void clearsoundlocks(void)
 {
     long i;
+
+    MIDISLIC_UpdatePlaylist();
 
     for (i = 0; i < NUM_SOUNDS; i++)
     {

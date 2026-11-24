@@ -7,9 +7,22 @@
 #ifndef MIDMIDISLIC_H
 #define MIDMIDISLIC_H
 
-#define MAX_MUSIC_BUF_BYTES   72000L   // Original Duke3D MusicPtr size
-#define HALF_MUSIC_BUF_BYTES  36000L   // Ping-pong half buffer size (2 x 36 KB = 72 KB)
-#define SLICE_TARGET_BYTES    32000U   // 32 KB per slice (fits cleanly inside 36 KB half)
+// RAM tiers (based on Z_AvailHeap() / totalmemory in bytes)
+#define MUS_HEAP_12MB         3500000L
+#define MUS_HEAP_16MB         7500000L
+#define MUS_HEAP_24MB         15000000L
+#define MUS_HEAP_32MB         23000000L
+
+// Total MusicPtr buffer sizes per RAM tier
+#define MUS_BUF_8MB           72000L     // 2 x 36 KB (32 KB slices)
+#define MUS_BUF_12MB          144000L    // 2 x 72 KB (60 KB slices)
+#define MUS_BUF_16MB          640000L    // 2 x 320 KB (60 KB slices, <640KB plays whole)
+#define MUS_BUF_24MB          860000L    // 2 x 430 KB (60 KB slices, <860KB plays whole)
+#define MUS_BUF_32MB          1048576L   // 2 x 512 KB (60 KB slices, <1MB plays whole)
+
+// Safe XMI slice limit (fits inside unsigned int / 64 KB XMI chunk logic)
+#define SLICE_LIMIT_8MB       32000U
+#define SLICE_LIMIT_HIGHRAM   60000U
 
 // Opens a MIDI ("MThd") or XMI ("FORM") file from GRP or disk for streaming.
 // Returns 1 on success, 0 on error.

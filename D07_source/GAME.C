@@ -6951,6 +6951,7 @@ void nonsharedkeys(void)
 char dist_slow = 0;
 char use_fpu = 1; // Use FPU to draw stuff like slopes by default
 char midram = 0; // Set to 1 by /midram command-line flag to force direct RAM streaming
+long midslicesize_kb = 0; // Set via /MIDSLICESIZE# (in KB, 0 = auto)
 
 void comlinehelp(char **argv)
 {
@@ -6995,6 +6996,7 @@ void comlinehelp(char **argv)
         "  /NS               Disable sound effects",
         "  /NM               Disable music",
         "  /MIDRAM           Force MIDI/XMI RAM streaming (no temp file)",
+        "  /MIDSLICESIZE#    Force MIDI slice size in KB (16-1024, e.g. 32)",
         "",
         "Video & Hardware Options:",
         "  /SETUP            Launch setup configuration",
@@ -7096,8 +7098,9 @@ void comlinehelp(char **argv)
 
 void checkcommandline(int argc,char **argv)
 {
+    long kb = 0;
     short i, j;
-    char *c;
+    char *c, *num_ptr;
 
     i = 1;
 
@@ -7267,6 +7270,34 @@ void checkcommandline(int argc,char **argv)
                         break;
                     case 'm':
                     case 'M':
+                        // Check for /MIDSLICESIZE# (e.g. /MIDSLICESIZE32, /MIDSLICESIZE64, /MIDSLICESIZE 32)
+                        if (strnicmp(c + 1, "idslicesize", 11) == 0)
+                        {
+                            kb = 0;
+                            num_ptr = c + 12;
+
+                            if (*num_ptr == '=' || *num_ptr == ':')
+                            {
+                                num_ptr++;
+                            }
+                            if (*num_ptr == 0 && (i + 1) < argc)
+                            {
+                                num_ptr = argv[++i];
+                            }
+
+                            kb = atol(num_ptr);
+                            if (kb >= 16 && kb <= 1024)
+                            {
+                                midslicesize_kb = kb;
+                                printf("Forced MIDI slice size: %ld KB.\n", midslicesize_kb);
+                            }
+                            else
+                            {
+                                puts("Invalid /MIDSLICESIZE (use 16..1024 KB).");
+                            }
+                            break; // Exit the case so it doesn't trigger /M (monsters off)
+                        }
+
                         // Check for the special 'midram' command first (case-insensitive).
                         // 'c' currently points to 'm' or 'M', so 'c+1' points to "idram".
                         if (stricmp(c + 1, "idram") == 0)
@@ -7663,6 +7694,10 @@ void Startup(void)
 
    compilecons();
 
+   // Crucial to fill the "long totalmemory" global var HERE, declared in global.c
+   // because if called in "Main" will not pass the right number to sounds.c
+   totalmemory = Z_AvailHeap();
+
    CONFIG_GetSetupFilename();
    CONFIG_ReadSetup();
 
@@ -7944,8 +7979,6 @@ void main(int argc,char **argv)
     initgroupfile("duke3d.grp");
 
     checkcommandline(argc,argv);
-
-    totalmemory = Z_AvailHeap();
 
 //    if(memorycheckoveride == 0)
 //    {
