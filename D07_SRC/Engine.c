@@ -1,3 +1,4 @@
+// ENGINE.C
 // "Build Engine & Tools" Copyright (c) 1993-1997 Ken Silverman
 // Ken Silverman's official web site: "http://www.advsys.net/ken"
 // See the included license file "BUILDLIC.TXT" for license info.
@@ -250,6 +251,11 @@ static long numtilefiles, artfil = -1, artfilnum, artfilplc;
 static char inpreparemirror = 0;
 static long mirrorsx1, mirrorsy1, mirrorsx2, mirrorsy2;
 
+// Low-RAM texture downscale shift per tile (0 = full res, 1 = 1/2 res, 2 = 1/4 res)
+static unsigned char tile_shift[MAXTILES];
+// Low-RAM downscaled texture dump to reduce micro-stutters on weak systems if disk is available
+static char ard_active[256]; // 1 if TILESxxx.ARD is valid for this ART file index
+
 long totalclocklock;
 
 extern long mmxoverlay();
@@ -344,7 +350,8 @@ extern long slopevlin2(long,long,long,long,long,long);
 
 long xdimuniversal;
 extern char use_fpu, dist_slow;
-extern char rendermodeportal;
+extern char lowram, rendermodeportal;
+extern char lowramforced, lowramnocache;
 extern long portalzoomadj;
 extern long ScreenWidth, ScreenHeight;
 
@@ -1771,8 +1778,9 @@ prepwall(long z, walltype *wal)
 
 ceilscan(long x1, long x2, long sectnum)
 {
-	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
 	long portalfovfactor; // Local storage for the scaling factor
+	unsigned char sh;
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -1846,7 +1854,7 @@ ceilscan(long x1, long x2, long sectnum)
 
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
-	if (globalorientation&8) { globalxshift++; globalyshift++; }
+	if (globalorientation&8) {globalxshift++; globalyshift++; }
 
 	// 3. Coordinate system transformations (rotation, mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
@@ -1865,7 +1873,15 @@ ceilscan(long x1, long x2, long sectnum)
 	globaly1 = (-globalx1-globaly1)*halfxdimen;
 	globalx2 = (globalx2-globaly2)*halfxdimen;
 
-	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
 
 	// 4. Final perspective calculation
 	globalx2 += globaly2*(x1-1);
@@ -1911,12 +1927,23 @@ ceilscan(long x1, long x2, long sectnum)
 		return;
 	}
 
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
 	switch(globalorientation&0x180)
 	{
-		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
 	}
+	// ---=== lowram - FINISH
 
 	y1 = umost[x1]; y2 = y1;
 	for(x=x1;x<=x2;x++)
@@ -1951,8 +1978,9 @@ ceilscan(long x1, long x2, long sectnum)
 
 florscan (long x1, long x2, long sectnum)
 {
-	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
 	long portalfovfactor; // Local scale factor for portal zoom
+	unsigned char sh;
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -2024,7 +2052,7 @@ florscan (long x1, long x2, long sectnum)
 
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
-	if (globalorientation&8) { globalxshift++; globalyshift++; }
+	if (globalorientation&8) {globalxshift++; globalyshift++; }
 
 	// 3. Coordinate transformations (Relative Alignment, Mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
@@ -2043,7 +2071,15 @@ florscan (long x1, long x2, long sectnum)
 	globaly1 = (-globalx1-globaly1)*halfxdimen;
 	globalx2 = (globalx2-globaly2)*halfxdimen;
 
-	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
 
 	// 4. Perspective depth calculations
 	globalx2 += globaly2*(x1-1);
@@ -2089,12 +2125,23 @@ florscan (long x1, long x2, long sectnum)
 		return;
 	}
 
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
 	switch(globalorientation&0x180)
 	{
-		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
 	}
+	// ---=== lowram - FINISH
 
 	y1 = max(dplc[x1],umost[x1]); y2 = y1;
 	for(x=x1;x<=x2;x++)
@@ -2132,6 +2179,7 @@ wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	long i, x, xnice, ynice, fpalookup, shade;
 	long y1ve[4], y2ve[4], u4, d4, dax, z, tsizx, tsizy;
 	char bad;
+	unsigned char sh;
 
 	tsizx = tilesizx[globalpicnum];
 	tsizy = tilesizy[globalpicnum];
@@ -2141,6 +2189,16 @@ wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	if ((dwal[x1] < 0) && (dwal[x2] < 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	xnice = (pow2long[picsiz[globalpicnum]&15] == tsizx);
 	if (xnice) tsizx--;
@@ -2162,7 +2220,8 @@ wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2180,7 +2239,8 @@ wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 			y2ve[z] = min(dwal[x+z],dmost[x+z])-1;
 			if (y2ve[z] < y1ve[z]) { bad += pow2char[z]; continue; }
 
-			i = lwal[x+z] + globalxpanning;
+				//i = lwal[x+z] + globalxpanning; // old
+			i = (lwal[x+z] + globalxpanning) >> sh; // considers lowram
 			if (i >= tsizx) { if (xnice == 0) i %= tsizx; else i &= tsizx; }
 			if (ynice == 0) i *= tsizy; else i <<= tsizy;
 			bufplce[z] = waloff[globalpicnum]+i;
@@ -2237,7 +2297,8 @@ wallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2254,6 +2315,7 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	long i, x, startx, xnice, ynice, fpalookup, shade;
 	long y1ve[4], y2ve[4], u4, d4, dax, z, p, tsizx, tsizy;
 	char bad;
+	unsigned char sh;
 
 	tsizx = tilesizx[globalpicnum];
 	tsizy = tilesizy[globalpicnum];
@@ -2263,6 +2325,16 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	if ((dwal[x1] < 0) && (dwal[x2] < 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	startx = x1;
 
@@ -2288,7 +2360,8 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2306,7 +2379,8 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 			y2ve[z] = min(dwal[dax],startdmost[dax+windowx1]-windowy1)-1;
 			if (y2ve[z] < y1ve[z]) { bad += pow2char[z]; continue; }
 
-			i = lwal[dax] + globalxpanning;
+				//i = lwal[dax] + globalxpanning; // old
+			i = (lwal[dax] + globalxpanning) >> sh; // considers lowram
 			if (i >= tsizx) { if (xnice == 0) i %= tsizx; else i &= tsizx; }
 			if (ynice == 0) i *= tsizy; else i <<= tsizy;
 			bufplce[z] = waloff[globalpicnum]+i;
@@ -2363,7 +2437,9 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
+
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2378,7 +2454,9 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 transmaskvline (long x)
 {
 	long vplc, vinc, p, i, palookupoffs, shade, bufplc;
+	long tsizx, tsizy;
 	short y1v, y2v;
+	unsigned char sh;
 
 	if ((x < 0) || (x >= xdimen)) return;
 
@@ -2392,9 +2470,18 @@ transmaskvline (long x)
 	vinc = swall[x]*globalyscale;
 	vplc = globalzd + vinc*(y1v-globalhoriz+1);
 
-	i = lwall[x]+globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplc = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	tsizx = tilesizx[globalpicnum] >> sh;
+	tsizy = tilesizy[globalpicnum] >> sh;
+
+		//i = lwall[x]+globalxpanning; // old
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum]; // old
+		//bufplc = waloff[globalpicnum]+i*tilesizy[globalpicnum]; // old
+	i = (lwall[x] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplc = waloff[globalpicnum] + i * tsizy;
+	// ---=== lowram - FINISH
 
 	p = ylookup[y1v]+x+frameoffset;
 
@@ -2405,41 +2492,58 @@ transmaskvline (long x)
 
 transmaskvline2 (long x)
 {
-	long i, y1, y2, x2;
-	short y1ve[2], y2ve[2];
+	long i, y1, y2, x2, tsizx, tsizy;
+        short y1ve[2], y2ve[2];
+	unsigned char sh;
 
 	if ((x < 0) || (x >= xdimen)) return;
 	if (x == xdimen-1) { transmaskvline(x); return; }
 
 	x2 = x+1;
 
-	y1ve[0] = max(uwall[x],startumost[x+windowx1]-windowy1);
-	y2ve[0] = min(dwall[x],startdmost[x+windowx1]-windowy1)-1;
-	if (y2ve[0] < y1ve[0]) { transmaskvline(x2); return; }
-	y1ve[1] = max(uwall[x2],startumost[x2+windowx1]-windowy1);
-	y2ve[1] = min(dwall[x2],startdmost[x2+windowx1]-windowy1)-1;
-	if (y2ve[1] < y1ve[1]) { transmaskvline(x); return; }
+        y1ve[0] = max(uwall[x],startumost[x+windowx1]-windowy1);
+        y2ve[0] = min(dwall[x],startdmost[x+windowx1]-windowy1)-1;
+        if (y2ve[0] < y1ve[0]) { transmaskvline(x2); return; }
+        y1ve[1] = max(uwall[x2],startumost[x2+windowx1]-windowy1);
+        y2ve[1] = min(dwall[x2],startdmost[x2+windowx1]-windowy1)-1;
+        if (y2ve[1] < y1ve[1]) { transmaskvline(x); return; }
 
-	palookupoffse[0] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x],globvis),globalshade)<<8);
-	palookupoffse[1] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x2],globvis),globalshade)<<8);
+        palookupoffse[0] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x],globvis),globalshade)<<8);
+        palookupoffse[1] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x2],globvis),globalshade)<<8);
 
-	setuptvlineasm2(globalshiftval,palookupoffse[0],palookupoffse[1]);
+        setuptvlineasm2(globalshiftval,palookupoffse[0],palookupoffse[1]);
 
-	vince[0] = swall[x]*globalyscale;
-	vince[1] = swall[x2]*globalyscale;
-	vplce[0] = globalzd + vince[0]*(y1ve[0]-globalhoriz+1);
-	vplce[1] = globalzd + vince[1]*(y1ve[1]-globalhoriz+1);
+        vince[0] = swall[x]*globalyscale;
+        vince[1] = swall[x2]*globalyscale;
+        vplce[0] = globalzd + vince[0]*(y1ve[0]-globalhoriz+1);
+        vplce[1] = globalzd + vince[1]*(y1ve[1]-globalhoriz+1);
 
-	i = lwall[x] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	tsizx = tilesizx[globalpicnum] >> sh;
+	tsizy = tilesizy[globalpicnum] >> sh;
 
-	i = lwall[x2] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+		// old
+		//i = lwall[x] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// considers lowram
+	i = (lwall[x] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplce[0] = waloff[globalpicnum] + i * tsizy;
 
-	y1 = max(y1ve[0],y1ve[1]);
-	y2 = min(y2ve[0],y2ve[1]);
+		// old
+		//i = lwall[x2] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// considers lowram
+	i = (lwall[x2] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+        bufplce[1] = waloff[globalpicnum] + i * tsizy;
+	// ---=== lowram - FINISH
+
+        y1 = max(y1ve[0],y1ve[1]);
+        y2 = min(y2ve[0],y2ve[1]);
 
 	i = x+frameoffset;
 
@@ -2475,11 +2579,20 @@ transmaskvline2 (long x)
 transmaskwallscan(long x1, long x2)
 {
 	long x, startx;
+	unsigned char sh;
 
 	setgotpic(globalpicnum);
 	if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	setuptvlineasm(globalshiftval);
 
@@ -2990,18 +3103,24 @@ char cachedebug = 0;
 loadtile(short tilenume)
 {
 	// ALL declarations at the top for Watcom C11.0 (1997) compliance
-	long i, dasiz, x, y, sx, sy;
+	long i, dasiz, comp_siz, x, y, sx, sy, skip_cols;
 	long xscale, yscale;
-	char *ptr, *tempbuf;
-	char templock, oldlock;
+	long orig_x, orig_y, new_x, new_y, step;
+	long dst_col_off;
+	unsigned char sh;
+	char *ptr, *tempbuf, *dot;
+	char oldlock, col_buf[2048];
+	static char templock;
 
 	if ((unsigned)tilenume >= (unsigned)MAXTILES) return;
 
-	// dasiz is already large (e.g. 384*384) because tilesizx was patched in loadpics
 	dasiz = (long)tilesizx[tilenume] * (long)tilesizy[tilenume];
 	if (dasiz <= 0) return;
 
-	// Handle ART file switching
+	sh = tile_shift[tilenume];
+	comp_siz = ((long)tilesizx[tilenume] >> sh) * ((long)tilesizy[tilenume] >> sh);
+
+	// Handle ART / ARD file switching
 	i = (long)tilefilenum[tilenume];
 	if (i != artfilnum)
 	{
@@ -3010,21 +3129,35 @@ loadtile(short tilenume)
 		artfilename[7] = (short)(i % 10) + 48;
 		artfilename[6] = (short)((i / 10) % 10) + 48;
 		artfilename[5] = (short)((i / 100) % 10) + 48;
+
+		dot = strrchr(artfilename, '.');
+		if (dot != NULL)
+		{
+			if (lowram > 0 && !lowramnocache && ard_active[i])
+			{
+				dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+			}
+			else
+			{
+				dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'T'; dot[4] = 0;
+			}
+		}
+
 		artfil = kopen4load(artfilename, 0);
 		faketimerhandler();
 	}
 
-	// Allocate cache memory for the tile
+	// Allocate cache memory for the tile (exact compressed size when tile_shift > 0)
 	if (waloff[tilenume] == 0)
 	{
 		walock[tilenume] = 199;
-		allocache(&waloff[tilenume], dasiz, &walock[tilenume]);
+		allocache(&waloff[tilenume], comp_siz, &walock[tilenume]);
 	}
 
-	// Align file pointer to the tile's data offset
+	// Align file pointer to the tile's exact data offset using SEEK_SET
 	if (artfilplc != tilefileoffs[tilenume])
 	{
-		klseek(artfil, tilefileoffs[tilenume] - artfilplc, SEEK_CUR);
+		klseek(artfil, tilefileoffs[tilenume], SEEK_SET);
 		faketimerhandler();
 	}
 
@@ -3036,23 +3169,17 @@ loadtile(short tilenume)
 		oldlock = walock[tilenume];
 		if (walock[tilenume] < 200) walock[tilenume] = 200;
 
-		// DUKE07 ADAPTIVE UPSCALER:
-		// Use allocache for a temporary buffer instead of malloc
-		templock = 200; // Lock buffer to prevent cache eviction during upscale
+		templock = 200;
 		allocache((long *)&tempbuf, 192 * 192, &templock);
 		ptr = (char *)waloff[tilenume];
 
 		if (tempbuf != NULL && ptr != NULL)
 		{
-			// 1. Read the original 192x192 data from ART file
 			kread(artfil, tempbuf, 192 * 192);
 
-			// 2. Fixed-point scaling ratios (16.16)
-			// Logic: How to map a pixel from high-res back to 192px source
 			xscale = divscale16(192, (long)tilesizx[tilenume]);
 			yscale = divscale16(192, (long)tilesizy[tilenume]);
 
-			// 3. Nearest Neighbor software upscaling loop
 			for (y = 0; y < (long)tilesizy[tilenume]; y++)
 			{
 				sy = mulscale16(y, yscale);
@@ -3064,24 +3191,190 @@ loadtile(short tilenume)
 			}
 		}
 
-		// Release the temp buffer and restore original tile lock
 		templock = 1;
 		walock[tilenume] = oldlock;
 	}
+	else if (sh > 0)
+	{
+		if (lowram > 0 && !lowramnocache && ard_active[artfilnum])
+		{
+			// Fast single linear read from pre-scaled TILESxxx.ARD disk cache
+			kread(artfil, ptr, comp_siz);
+		}
+		else
+		{
+			// On-the-fly column decimation from TILESxxx.ART (lowramnocache fallback)
+			orig_x = (long)tilesizx[tilenume];
+			orig_y = (long)tilesizy[tilenume];
+			new_x  = orig_x >> sh;
+			new_y  = orig_y >> sh;
+			step   = 1L << sh;
+
+			if (ptr != NULL && orig_y <= 2048)
+			{
+				for (x = 0; x < new_x; x++)
+				{
+					kread(artfil, col_buf, orig_y);
+
+					dst_col_off = x * new_y;
+					for (y = 0; y < new_y; y++)
+					{
+						ptr[dst_col_off + y] = col_buf[y << sh];
+					}
+
+					if ((x + 1) < new_x)
+					{
+						for (skip_cols = 1; skip_cols < step; skip_cols++)
+						{
+							kread(artfil, col_buf, orig_y);
+						}
+					}
+				}
+			}
+		}
+	}
 	else
 	{
-		// Standard tile loading for non-portal textures
+		// Standard tile loading
 		kread(artfil, ptr, dasiz);
 	}
 
 	faketimerhandler();
 
-	// Correctly update file position tracker
-	// Portals only occupy 192x192 in the physical .ART file!
 	if (tilenume >= PORTAL0 && tilenume <= PORTAL31)
 		artfilplc = tilefileoffs[tilenume] + (192 * 192);
+	else if (sh > 0)
+	{
+		if (lowram > 0 && !lowramnocache && ard_active[artfilnum])
+			artfilplc = tilefileoffs[tilenume] + comp_siz;
+		else
+			artfilplc = -1L;
+	}
 	else
 		artfilplc = tilefileoffs[tilenume] + dasiz;
+}
+
+// Low-RAM downscaled texture dump to reduce micro-stutters on weak systems if disk is available
+static int build_ard_file(short src_art_fil, long localtilestart, long localtileend)
+{
+	long i, orig_x, orig_y, new_x, new_y, step;
+	long x, y, skip_cols, dasiz, rem, to_read;
+	char ardname[16];
+	char hdr[8];
+	char col_buf[2048];
+	char chunk[4096];
+	char *dot;
+	unsigned char sh;
+	FILE *fp;
+
+	strcpy(ardname, artfilename);
+	dot = strrchr(ardname, '.');
+	if (dot != NULL)
+	{
+		dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+	}
+	else
+	{
+		strcat(ardname, ".ARD");
+	}
+
+	fp = fopen(ardname, "wb");
+	if (fp == NULL)
+	{
+		lowramnocache = 1;
+		return 0;
+	}
+
+	printf("Building %s (LowRAM level %d)...\n", ardname, (int)lowram);
+
+	// 8-byte header: "ARD\x1A" + level + 3 reserved bytes
+	hdr[0] = 'A'; hdr[1] = 'R'; hdr[2] = 'D'; hdr[3] = 0x1A;
+	hdr[4] = (char)lowram;
+	hdr[5] = 0; hdr[6] = 0; hdr[7] = 0;
+	if (fwrite(hdr, 1, 8, fp) != 8)
+	{
+		fclose(fp);
+		remove(ardname);
+		lowramnocache = 1;
+		return 0;
+	}
+
+	for (i = localtilestart; i <= localtileend; i++)
+	{
+		dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+		if (dasiz <= 0) continue;
+
+		klseek(src_art_fil, tilefileoffs[i], SEEK_SET);
+
+		if (i >= PORTAL0 && i <= PORTAL31)
+		{
+			// Portals in lowram stay 192x192: copy in 4KB chunks without heap allocation
+			rem = 192L * 192L;
+			while (rem > 0)
+			{
+				to_read = (rem > 4096L) ? 4096L : rem;
+				kread(src_art_fil, chunk, to_read);
+				fwrite(chunk, 1, to_read, fp);
+				rem -= to_read;
+			}
+			continue;
+		}
+
+		sh = tile_shift[i];
+
+		if (sh == 0)
+		{
+			// Copy uncompressed tile in 4KB chunks (never fails on low RAM)
+			rem = dasiz;
+			while (rem > 0)
+			{
+				to_read = (rem > 4096L) ? 4096L : rem;
+				kread(src_art_fil, chunk, to_read);
+				fwrite(chunk, 1, to_read, fp);
+				rem -= to_read;
+			}
+		}
+		else
+		{
+			orig_x = (long)tilesizx[i];
+			orig_y = (long)tilesizy[i];
+			new_x  = orig_x >> sh;
+			new_y  = orig_y >> sh;
+			step   = 1L << sh;
+
+			if (orig_y <= 2048)
+			{
+				for (x = 0; x < new_x; x++)
+				{
+					kread(src_art_fil, col_buf, orig_y);
+					for (y = 0; y < new_y; y++)
+					{
+						fputc(col_buf[y << sh], fp);
+					}
+					if ((x + 1) < new_x)
+					{
+						for (skip_cols = 1; skip_cols < step; skip_cols++)
+						{
+							kread(src_art_fil, col_buf, orig_y);
+						}
+					}
+				}
+			}
+		}
+		faketimerhandler();
+	}
+
+	fflush(fp);
+	if (ferror(fp))
+	{
+		fclose(fp);
+		remove(ardname);
+		lowramnocache = 1;
+		return 0;
+	}
+
+	fclose(fp);
+	return 1;
 }
 
 allocatepermanenttile(short tilenume, long xsiz, long ysiz)
@@ -3112,9 +3405,13 @@ allocatepermanenttile(short tilenume, long xsiz, long ysiz)
 long portalnewdimratio = 65536;
 loadpics(char *filename)
 {
-	long offscount, siz, localtilestart, localtileend, dasiz;
-	long k, i, j, target_portal_size;
-	short fil;
+	long offscount, siz, localtilestart, localtileend, dasiz, ard_offs;
+        long k, i, j, target_portal_size, area, comp_siz;
+	short fil, ardfil;
+	char ardname[256];
+	char hdr[8];
+	char *dot;
+	unsigned char sh;
 
 	strcpy(artfilename, filename);
 
@@ -3123,7 +3420,12 @@ loadpics(char *filename)
 	{
 		tilesizx[i] = 0;
 		tilesizy[i] = 0;
+		tile_shift[i] = 0;
 		picanm[i] = 0L;
+	}
+	for (i = 0; i < 256; i++)
+	{
+		ard_active[i] = 0;
 	}
 
 	artsize = 0L;
@@ -3131,9 +3433,10 @@ loadpics(char *filename)
 
 	// Determine high-res portal target based on screen resolution
 	// Use ScreenWidth from config, because xdim is still 320 at this point!
-	if (ScreenWidth >= 800) target_portal_size = 512;
+	if      (lowram)             target_portal_size = 192;
+	else if (ScreenWidth >= 800) target_portal_size = 512;
 	else if (ScreenWidth >= 640) target_portal_size = 384;
-	else target_portal_size = 192;
+	else                         target_portal_size = 192;
 
 	// Calc the global coeff: for how many times is new tile is LARGER
 	// 192 -> 384 gives ratio 2.0
@@ -3145,6 +3448,11 @@ loadpics(char *filename)
 		artfilename[7] = (k % 10) + 48;
 		artfilename[6] = ((k / 10) % 10) + 48;
 		artfilename[5] = ((k / 100) % 10) + 48;
+		dot = strrchr(artfilename, '.');
+		if (dot != NULL)
+		{
+			dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'T'; dot[4] = 0;
+		}
 
 		if ((fil = kopen4load(artfilename, 0)) != -1)
 		{
@@ -3159,8 +3467,50 @@ loadpics(char *filename)
 			kread(fil, &tilesizy[localtilestart], (localtileend - localtilestart + 1) << 1);
 			kread(fil, &picanm[localtilestart], (localtileend - localtilestart + 1) << 2);
 
+			// Probe TILESxxx.ARD before calculating tile_shift[] so auto-detected lowram adopts existing ARD level
+			ard_active[k] = 0;
+			if (lowram > 0 && !lowramnocache)
+			{
+				strcpy(ardname, artfilename);
+				dot = strrchr(ardname, '.');
+				if (dot != NULL)
+				{
+					dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+				}
+
+				ardfil = kopen4load(ardname, 0);
+				if (ardfil != -1)
+				{
+					memset(hdr, 0, sizeof(hdr));
+					kread(ardfil, hdr, 8);
+					kclose(ardfil);
+
+					if (hdr[0] == 'A' && hdr[1] == 'R' && hdr[2] == 'D' && hdr[3] == 0x1A &&
+					    hdr[4] >= 1 && hdr[4] <= 3)
+					{
+						if (!lowramforced)
+						{
+							lowram = hdr[4];
+							printf("Found ARD cache %s (level %d): adopting detail level %d.\n",
+								ardname, (int)lowram, (int)lowram);
+							ard_active[k] = 1;
+						}
+						else if (hdr[4] == lowram)
+						{
+							printf("Found matching ARD cache %s (level %d).\n", ardname, (int)lowram);
+							ard_active[k] = 1;
+						}
+						else
+						{
+							printf("ARD cache %s is level %d (requested %d): rebuilding...\n",
+								ardname, (int)hdr[4], (int)lowram);
+						}
+					}
+				}
+			}
+
 			// DUKE07 ADAPTIVE OVERRIDE:
-			// We trick the engine into thinking portals are larger BEFORE cache init.
+			// Upscale portals on high-res; in lowram downscale tiles according to level (1..3)
 			for (i = localtilestart; i <= localtileend; i++)
 			{
 				if (i >= PORTAL0 && i <= PORTAL31)
@@ -3168,30 +3518,99 @@ loadpics(char *filename)
 					tilesizx[i] = (short)target_portal_size;
 					tilesizy[i] = (short)target_portal_size;
 				}
+				else if (lowram > 0)
+				{
+					area = (long)tilesizx[i] * (long)tilesizy[i];
+
+					if (lowram == 1)
+					{
+						// Level 1: >= 192px (and >= 32 KB to keep HUD bars sharp)
+						if ((tilesizx[i] >= 192 || tilesizy[i] >= 192) && area >= 32768L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 400 || tilesizy[i] >= 400) ? 2 : 1;
+						}
+					}
+					else if (lowram == 2)
+					{
+						// Level 2: >= 96px (and >= 4 KB to preserve small UI/fonts)
+						if ((tilesizx[i] >= 96 || tilesizy[i] >= 96) && area >= 4096L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 192 || tilesizy[i] >= 192) ? 2 : 1;
+						}
+					}
+					else if (lowram >= 3)
+					{
+						// Level 3: >= 48px (and >= 1 KB to preserve tiny crosshair/font glyphs)
+						if ((tilesizx[i] >= 48 || tilesizy[i] >= 48) && area >= 1024L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 192 || tilesizy[i] >= 192) ? 2 : 1;
+						}
+					}
+				}
 			}
 
+			// First compute offsets in original .ART file (needed if build_ard_file() runs)
 			offscount = 4 + 4 + 4 + 4 + ((localtileend - localtilestart + 1) << 3);
 			for (i = localtilestart; i <= localtileend; i++)
 			{
 				tilefilenum[i] = (short)k;
 				tilefileoffs[i] = offscount;
-				dasiz = (long)(tilesizx[i] * tilesizy[i]);
 
-				// Track total memory needed for the linear cache
-				artsize += ((dasiz + 15) & 0xfffffff0);
+				// Cast to long BEFORE multiplying to prevent 16-bit short overflow!
+				dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+				sh = tile_shift[i];
+				comp_siz = ((long)tilesizx[i] >> sh) * ((long)tilesizy[i] >> sh);
+				// Track compressed memory needed for the linear cache
+				artsize += ((comp_siz + 15) & 0xfffffff0);
 
-				// Calculate offset for the next tile based on REAL file data size (192x192 base)
-				if (i >= PORTAL0 && i <= PORTAL31)
-					offscount += (192 * 192);
-				else
-					offscount += dasiz;
+				// Calculate offset for the next tile based on REAL file data size
+				if (i >= PORTAL0 && i <= PORTAL31) offscount += (192 * 192);
+				else                               offscount += dasiz;
 			}
+
+			// Build missing/outdated TILESxxx.ARD and remap tilefileoffs[] to .ARD
+			if (lowram > 0 && !lowramnocache)
+			{
+				if (!ard_active[k])
+				{
+					if (build_ard_file(fil, localtilestart, localtileend))
+					{
+						ard_active[k] = 1;
+					}
+					else
+					{
+						printf("Cannot write ARD cache (read-only media?): enabling lowramnocache.\n");
+					}
+				}
+
+				if (ard_active[k])
+				{
+					ard_offs = 8L; // Skip 8-byte ARD header
+					for (i = localtilestart; i <= localtileend; i++)
+					{
+						tilefileoffs[i] = ard_offs;
+						dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+						if (dasiz <= 0) continue;
+
+						if (i >= PORTAL0 && i <= PORTAL31)
+						{
+						    ard_offs += (192 * 192);
+						}
+						else
+						{
+						    sh = tile_shift[i];
+						    ard_offs += ((long)tilesizx[i] >> sh) * ((long)tilesizy[i] >> sh);
+						}
+					}
+				}
+			}
+
 			kclose(fil);
 			numtilefiles++;
 		}
 	} while (k != (long)numtilefiles);
 
-	clearbuf((long)(&gotpic[0]), (long)((MAXTILES + 31) >> 5), 0L);
+	clearbuf((long)(&gotpic), (long)((MAXTILES + 31) >> 5), 0L);
 
 	// Initialize the linear cache with the calculated total size
 	cachesize = max(artsize, 1048576);
@@ -3202,7 +3621,7 @@ loadpics(char *filename)
 	}
 	initcache((FP_OFF(pic) + 15) & 0xfffffff0, (cachesize - ((-FP_OFF(pic)) & 15)) & 0xfffffff0);
 
-	// Build the power-of-two picsiz table for the renderer
+	// Build the power-of-two picsiz table for the renderer (always original dimensions!)
 	for (i = 0; i < MAXTILES; i++)
 	{
 		j = 15; while ((j > 1) && (pow2long[j] > tilesizx[i])) j--;
@@ -3788,9 +4207,10 @@ drawsprite (long snum)
 	long xs, ys, xpos, ypos, xv, yv, top, topinc, bot, botinc, hplc, hinc;
 	long cosang, sinang, dax, day, lpoint, lmax, rpoint, rmax, dax1, dax2, y;
 	long npoints, npoints2, zz, t, zsgn, zzsgn, *longptr;
-	signed short shade;
 	short tilenum, spritenum;
+	signed short shade;
 	char swapped, daclip;
+	unsigned char sh;
 
 	// portal variables start
 	short sprite_ang;
@@ -4081,7 +4501,7 @@ drawsprite (long snum)
 		if (lwall[xb1[MAXWALLSB-1]] < 0) lwall[xb1[MAXWALLSB-1]] = 0;
 		if (lwall[xb2[MAXWALLSB-1]] >= xspan) lwall[xb2[MAXWALLSB-1]] = xspan-1;
 
-		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		// ======= parallax texturing on wall aligned sprites for portals - START =====================
 		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
 		{
                     // use mulscale16, to evade IDIV crash
@@ -4100,7 +4520,7 @@ drawsprite (long snum)
                         swall[x] = mulscale19(i, xdimscale);
                     }
 		}
-		// ======= parallax texturing on wall aligned sprites for portals finish =====================
+		// ======= parallax texturing on wall aligned sprites for portals - FINISH =====================
 
 		if ((swapped^((cstat&4)>0)) > 0)
 		{
@@ -4243,7 +4663,7 @@ drawsprite (long snum)
 			}
 		}
 
-		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		// ======= parallax texturing on wall aligned sprites for portals - START =====================
 		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
 		{
 		    xspan = tilesizx[tilenum]; yspan = tilesizy[tilenum];
@@ -4255,7 +4675,7 @@ drawsprite (long snum)
 		    sprite_ang = tspr->ang;
 
 
-		    // --- motion animated portal tiles that must be projected still start ----
+		    // --- motion animated portal tiles that must be projected still start2 ----
 		    // --- Horizontal Projection (U) ---
 		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
 		    {
@@ -4285,9 +4705,9 @@ drawsprite (long snum)
 		    globalzd = ((yspan >> 1) << globalshiftval);
 		    // Apply tilt/y-offset compensation
 		    globalzd += ((100 - tspr->yoffset) * globalyscale << 3);
-		    // --- motion animated portal tiles that must be projected still finish ----
+		    // --- motion animated portal tiles that must be projected still finish2 ----
 
-		    // ---- for static tiles where tile contents don't matter start ----	    
+		    // ---- for static tiles where tile contents don't matter start3 ----	    
 		    //	// --- horizontal with parallax scrolling (U) ---
 		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
 		    //{
@@ -4311,12 +4731,12 @@ drawsprite (long snum)
 		    //globalzd = ((yspan >> 1) << globalshiftval); 
 		    //	// Vertically locked to player's global horizon for a stable parallax effect
 		    //globalzd += (globalhoriz * globalyscale << 3);
-		    // ---- for static tiles where tile contents don't matter finish ----
+		    // ---- for static tiles where tile contents don't matter finish3 ----
 	
 		    globalpicnum = tilenum; globalshade = tspr->shade;
 		    globalpal = tspr->pal; globvis = 0;
 		}
-		// ======= parallax texturing on wall aligned sprites for portals finish =====================
+		// ======= parallax texturing on wall aligned sprites for portals - FINISH =====================
 
 			//sprite
 		if ((searchit >= 1) && (searchx >= xb1[MAXWALLSB-1]) && (searchx <= xb2[MAXWALLSB-1]))
@@ -4635,13 +5055,23 @@ drawsprite (long snum)
 		globalx1 = (globalx1-globalx2)*halfxdimen;
 		globaly1 = (globaly1-globaly2)*halfxdimen;
 
+		// ---=== lowram - START
+			// old
+			//if ((cstat&2) == 0)
+			//	msethlineshift(x,y);
+			//else
+			//	tsethlineshift(x,y);
+			//
+		sh = tile_shift[globalpicnum];
 		if ((cstat&2) == 0)
-			msethlineshift(x,y);
+			msethlineshift(x - sh, y - sh);
 		else
-			tsethlineshift(x,y);
+			tsethlineshift(x - sh, y - sh);
+		// ---=== lowram - FINISH
 
-			//Draw it!
-		ceilspritescan(lx,rx-1);
+				//Draw it!
+			ceilspritescan(lx,rx-1);
+
 	}
 #ifdef SUPERBUILD
 	else if ((cstat&48) == 48)
@@ -7369,7 +7799,9 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	long i, x, y, x1, y1, x2, y2, gx1, gy1, p, bufplc, palookupoffs;
 	long xsiz, ysiz, xoff, yoff, npoints, yplc, yinc, lx, rx, xx, xend;
 	long xv, yv, xv2, yv2, obuffermode, qlinemode, y1ve[4], y2ve[4], u4, d4;
+	long buf_ysiz;
 	char bad;
+	unsigned char sh;
 
 	xsiz = tilesizx[picnum]; ysiz = tilesizy[picnum];
 	if (dastat&16) { xoff = 0; yoff = 0; }
@@ -7464,6 +7896,11 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	setgotpic(picnum);
 	bufplc = waloff[picnum];
 
+	// ---=== lowram - START
+	sh = tile_shift[picnum];
+	buf_ysiz = ysiz >> sh;
+	// ---=== lowram - FINISH
+
 	palookupoffs = FP_OFF(palookup[dapalnum]) + (getpalookup(0L,(long)dashade)<<8);
 
 	i = divscale32(1L,z);
@@ -7502,9 +7939,11 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 
 	if ((dastat&1) == 0)
 	{
-		if (((a&1023) == 0) && (ysiz <= 256))  //vlineasm4 has 256 high limit!
+		// Note: check buf_ysiz <= 256 so compressed 512x512 tiles also use fast vlineasm4!
+		if (((a&1023) == 0) && (buf_ysiz <= 256))
 		{
-			if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L);
+			//if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L); // old
+			if (dastat&64) setupvlineasm(24L + sh); else setupmvlineasm(24L + sh); // considers lowram
 			by <<= 8; yv <<= 8; yv2 <<= 8;
 
 			palookupoffse[0] = palookupoffse[1] = palookupoffse[2] = palookupoffse[3] = palookupoffs;
@@ -7527,7 +7966,8 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 
 					by += yv*(y1-oy); oy = y1;
 
-					bufplce[xx] = (bx>>16)*ysiz+bufplc;
+					//bufplce[xx] = (bx>>16)*ysiz+bufplc; // old
+					bufplce[xx] = (bx>>(16 + sh))*buf_ysiz+bufplc; // considers lowram
 					vplce[xx] = by;
 					y1ve[xx] = y1;
 					y2ve[xx] = y2-1;
@@ -7593,6 +8033,16 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 		}
 		else
 		{
+			// ---=== lowram - START
+			if (sh > 0)
+			{
+				bx >>= sh; by >>= sh;
+				xv >>= sh; yv >>= sh;
+				xv2 >>= sh; yv2 >>= sh;
+				ysiz = buf_ysiz;
+			}
+			// ---=== lowram - FINISH
+
 			if (dastat&64)
 			{
 				if ((xv2&0x0000ffff) == 0)
@@ -7696,6 +8146,16 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	}
 	else
 	{
+		// ---=== lowram - START
+		if (sh > 0)
+		{
+			bx >>= sh; by >>= sh;
+			xv >>= sh; yv >>= sh;
+			xv2 >>= sh; yv2 >>= sh;
+			ysiz = buf_ysiz;
+		}
+		// ---=== lowram - FINISH
+
 		if ((dastat&1) == 0)
 		{
 			if (dastat&64)
@@ -7985,6 +8445,7 @@ drawmapview (long dax, long day, long zoome, short ang)
 	long s, w, ox, oy, startwall, cx1, cy1, cx2, cy2;
 	long bakgxvect, bakgyvect, sortnum, gap, npoints;
 	long xvect, yvect, xvect2, yvect2, daslope;
+	unsigned char sh;
 
 	beforedrawrooms = 0;
 	totalarea += (windowx2+1-windowx1)*(windowy2+1-windowy1);
@@ -8084,7 +8545,11 @@ drawmapview (long dax, long day, long zoome, short ang)
 			globalyshift = (8-(picsiz[globalpicnum]>>4));
 			if (globalorientation&8) {globalxshift++; globalyshift++; }
 
-			sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+			// ---=== lowram - START		
+				//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+			sh = tile_shift[globalpicnum];
+			sethlinesizes((picsiz[globalpicnum]&15) - sh, (picsiz[globalpicnum]>>4) - sh, globalbufplc);
+			// ---=== lowram - FINISH
 
 			if ((globalorientation&0x4) > 0)
 			{
@@ -8217,10 +8682,18 @@ drawmapview (long dax, long day, long zoome, short ang)
 			globalposx = dmulscale28(-baky1,globalx1,-bakx1,globaly1);
 			globalposy = dmulscale28(bakx1,globalx2,-baky1,globaly2);
 
+			// ---=== lowram - START
+				//old
+				//if ((spr->cstat&2) == 0)
+				//	msethlineshift(ox,oy);
+				//else
+				//	tsethlineshift(ox,oy);
+			sh = tile_shift[globalpicnum];
 			if ((spr->cstat&2) == 0)
-				msethlineshift(ox,oy);
+				msethlineshift(ox - sh, oy - sh);
 			else
-				tsethlineshift(ox,oy);
+				tsethlineshift(ox - sh, oy - sh);
+			// ---=== lowram - FINISH
 
 			if ((spr->cstat&0x4) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalposx = -globalposx;
 			asm1 = (globaly1<<2); globalx1 <<= 2; globalposx <<= (20+2);
@@ -9085,9 +9558,10 @@ grouscan (long dax1, long dax2, long sectnum, char dastat)
 #define BITSOFPRECISION 3  //Don't forget to change this in A.ASM also!
 grouscanfpu (long dax1, long dax2, long sectnum, char dastat)
 {
-	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
+	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz, xb, yb;
 	long daslope, dasqr;
 	long dashade, shoffs, shinc, m1, m2, *mptr1, *mptr2, *nptr1, *nptr2;
+	unsigned char sh;
 	walltype *wal;
 	sectortype *sec;
 
@@ -9195,7 +9669,13 @@ grouscanfpu (long dax1, long dax2, long sectnum, char dastat)
 	globvis = mulscale16(globvis,xdimscale);
 	j = FP_OFF(palookup[globalpal]);
 
-	setupslopevlin(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]);
+	// ---=== lowram - START
+		//setupslopevlin(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]); // old
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	setupslopevlin(xb + (yb << 8), waloff[globalpicnum], -ylookup[1]);
+	// ---=== lowram - FINISH
 
 	l = (globalzd>>16);
 
@@ -9363,9 +9843,9 @@ char slopeisfar; //for asm slopevlin2
 grouscanint (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
-	long daslope, dasqr;
 	long dashade, shoffs, shinc, m1, m2, *mptr1, *mptr2, *nptr1, *nptr2;
-	long perspdepthdist;
+	long daslope, dasqr, perspdepthdist, xb, yb;
+	unsigned char sh;
 
 	walltype *wal;
 	sectortype *sec;
@@ -9476,7 +9956,15 @@ grouscanint (long dax1, long dax2, long sectnum, char dastat)
 	globvis = mulscale16(globvis,xdimscale);
 	j = FP_OFF(palookup[globalpal]);
 
-	setupslopevlin2(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]);
+	// ---=== lowram - START
+		//setupslopevlin2(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]); // old
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	setupslopevlin2(xb + (yb << 8), waloff[globalpicnum], -ylookup[1]);
+	// ---=== lowram - FINISH
+
+	l = (globalzd>>16);
 
 	l = (globalzd>>16);
 
@@ -9537,8 +10025,8 @@ getpalookup(long davis, long dashade)
 parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 {
 	sectortype *sec;
-	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak;
-	long skyfov;
+	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak, skyfov;
+	long skyshiftbase; // need to restore globalshiftval before each wallscan call in lowram mode
 	short *topptr, *botptr;
 
 	sectnum = thesector[bunchfirst[bunch]]; sec = &sector[sectnum];
@@ -9576,6 +10064,7 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 	globalshiftval = (picsiz[globalpicnum]>>4);
 	if (pow2long[globalshiftval] != tilesizy[globalpicnum]) globalshiftval++;
 	globalshiftval = 32-globalshiftval;
+	skyshiftbase = globalshiftval;
 	globalzd = (((tilesizy[globalpicnum]>>1)+parallaxyoffs)<<globalshiftval)+(globalypanning<<24);
 	globalyscale = (8<<(globalshiftval-19));
 	//if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
@@ -9626,7 +10115,10 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 			globalpicnum = l+pskyoff[lplc[x]>>m];
 
 			if (((lplc[x]^lplc[xb1[z]-1])>>m) == 0)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan(x,xb1[z]-1,topptr,botptr,swplc,lplc);
+			}
 			else
 			{
 				j = x;
@@ -9635,6 +10127,7 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					n = l+pskyoff[lplc[x]>>m];
 					if (n != globalpicnum)
 					{
+						globalshiftval = skyshiftbase;
 						wallscan(j,x-1,topptr,botptr,swplc,lplc);
 						j = x;
 						globalpicnum = n;
@@ -9642,7 +10135,10 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					x++;
 				}
 				if (j < x)
+				{
+					globalshiftval = skyshiftbase;
 					wallscan(j,x-1,topptr,botptr,swplc,lplc);
+				}
 			}
 
 			globalpicnum = l;
@@ -9656,7 +10152,10 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 		globalpicnum = l+pskyoff[lplc[x]>>m];
 
 		if (((lplc[x]^lplc[xb2[bunchlast[bunch]]])>>m) == 0)
+		{
+			globalshiftval = skyshiftbase;
 			wallscan(x,xb2[bunchlast[bunch]],topptr,botptr,swplc,lplc);
+		}
 		else
 		{
 			j = x;
@@ -9665,6 +10164,7 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				n = l+pskyoff[lplc[x]>>m];
 				if (n != globalpicnum)
 				{
+					globalshiftval = skyshiftbase;
 					wallscan(j,x-1,topptr,botptr,swplc,lplc);
 					j = x;
 					globalpicnum = n;
@@ -9672,7 +10172,10 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				x++;
 			}
 			if (j <= x)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan(j,x,topptr,botptr,swplc,lplc);
+			}
 		}
 		globalpicnum = l;
 	}

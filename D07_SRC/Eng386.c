@@ -1,3 +1,4 @@
+// ENG386.C
 // "Build Engine & Tools" Copyright (c) 1993-1997 Ken Silverman
 // Ken Silverman's official web site: "http://www.advsys.net/ken"
 // See the included license file "BUILDLIC.TXT" for license info.
@@ -260,6 +261,10 @@ static char inpreparemirror = 0;
 static long mirrorsx1, mirrorsy1, mirrorsx2, mirrorsy2;
 
 long totalclocklock;
+// Low-RAM texture downscale shift per tile (0 = full res, 1 = 1/2 res, 2 = 1/4 res)
+static unsigned char tile_shift[MAXTILES];
+// Low-RAM downscaled texture dump to reduce micro-stutters on weak systems if disk is available
+static char ard_active[256]; // 1 if TILESxxx.ARD is valid for this ART file index
 
 extern long mmxoverlay();
 #pragma aux mmxoverlay modify [eax ebx ecx edx];
@@ -369,7 +374,8 @@ short use_lqmode = 1;   //this variable makes it use LQ2X
                         //low-detail functions
 
 extern char use_fpu, dist_slow;
-extern char rendermodeportal;
+extern char lowram, rendermodeportal;
+extern char lowramforced, lowramnocache;
 extern long portalzoomadj;
 extern long ScreenWidth, ScreenHeight;
 
@@ -1826,8 +1832,9 @@ ceilscan (long x1, long x2, long sectnum)
 // high quality version
 ceilscan_HQ (long x1, long x2, long sectnum)
 {
-	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
 	long portalfovfactor; // Local storage for the scaling factor
+	unsigned char sh;
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -1901,7 +1908,7 @@ ceilscan_HQ (long x1, long x2, long sectnum)
 
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
-	if (globalorientation&8) { globalxshift++; globalyshift++; }
+	if (globalorientation&8) {globalxshift++; globalyshift++; }
 
 	// 3. Coordinate system transformations (rotation, mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
@@ -1920,7 +1927,15 @@ ceilscan_HQ (long x1, long x2, long sectnum)
 	globaly1 = (-globalx1-globaly1)*halfxdimen;
 	globalx2 = (globalx2-globaly2)*halfxdimen;
 
-	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
 
 	// 4. Final perspective calculation
 	globalx2 += globaly2*(x1-1);
@@ -1966,12 +1981,23 @@ ceilscan_HQ (long x1, long x2, long sectnum)
 		return;
 	}
 
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
 	switch(globalorientation&0x180)
 	{
-		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
 	}
+	// ---=== lowram - FINISH
 
 	y1 = umost[x1]; y2 = y1;
 	for(x=x1;x<=x2;x++)
@@ -2004,225 +2030,246 @@ ceilscan_HQ (long x1, long x2, long sectnum)
 	faketimerhandler();
 }
 
+
 // low quality version
-ceilscan_LQ2X (long x1, long x2, long sectnum)
+ceilscan_LQ2X(long x1, long x2, long sectnum)
 {
-    long i, j, ox, oy, x, y1, y2, twall, bwall;
-    long portalfovfactor; // Local factor for portal zoom sync
-    sectortype *sec;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
+	long portalfovfactor; // Local storage for the scaling factor
+	unsigned char sh;
+	sectortype *sec;
 
-    sec = &sector[sectnum];
-    if (palookup[sec->ceilingpal] != globalpalwritten)
-    {
-        globalpalwritten = palookup[sec->ceilingpal];
-        setpalookupaddress(globalpalwritten);
-    }
+	sec = &sector[sectnum];
+	if (palookup[sec->ceilingpal] != globalpalwritten)
+	{
+		globalpalwritten = palookup[sec->ceilingpal];
+		setpalookupaddress(globalpalwritten);
+	}
 
-    globalzd = sec->ceilingz-globalposz;
-    if (globalzd > 0) return;
-    globalpicnum = sec->ceilingpicnum;
-    if ((unsigned)globalpicnum >= (unsigned)MAXTILES) globalpicnum = 0;
-    setgotpic(globalpicnum);
-    if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
-    if (picanm[globalpicnum]&192) globalpicnum += animateoffs((short)globalpicnum,(short)sectnum);
+	globalzd = sec->ceilingz - globalposz;
+	if (globalzd > 0) return;
+	globalpicnum = sec->ceilingpicnum;
+	if ((unsigned)globalpicnum >= (unsigned)MAXTILES) globalpicnum = 0;
+	setgotpic(globalpicnum);
+	if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
+	if (picanm[globalpicnum] & 192) globalpicnum += animateoffs((short)globalpicnum, (short)sectnum);
 
-    if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
-    globalbufplc = waloff[globalpicnum];
+	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+	globalbufplc = waloff[globalpicnum];
 
-    globalshade = (long)sec->ceilingshade;
-    globvis = globalcisibility;
-    if (sec->visibility != 0) globvis = mulscale4(globvis,(long)((unsigned char)(sec->visibility+16)));
-    globalorientation = (long)sec->ceilingstat;
+	globalshade = (long)sec->ceilingshade;
+	globvis = globalcisibility;
+	if (sec->visibility != 0) globvis = mulscale4(globvis, (long)((unsigned char)(sec->visibility + 16)));
+	globalorientation = (long)sec->ceilingstat;
 
 
-    if ((globalorientation&64) == 0)
-    {
-        globalx1 = singlobalang; globalx2 = singlobalang;
-        globaly1 = cosglobalang; globaly2 = cosglobalang;
-        globalxpanning = (globalposx<<20);
-        globalypanning = -(globalposy<<20);
-    }
-    else
-    {
-        j = sec->wallptr;
-        ox = wall[wall[j].point2].x - wall[j].x;
-        oy = wall[wall[j].point2].y - wall[j].y;
-        i = nsqrtasm(ox*ox+oy*oy); if (i == 0) i = 1024; else i = 1048576/i;
-        globalx1 = mulscale10(dmulscale10(ox,singlobalang,-oy,cosglobalang),i);
-        globaly1 = mulscale10(dmulscale10(ox,cosglobalang,oy,singlobalang),i);
-        globalx2 = -globalx1;
-        globaly2 = -globaly1;
+	if ((globalorientation & 64) == 0)
+	{
+		globalx1 = singlobalang; globalx2 = singlobalang;
+		globaly1 = cosglobalang; globaly2 = cosglobalang;
+		globalxpanning = (globalposx << 20);
+		globalypanning = -(globalposy << 20);
+	}
+	else
+	{
+		j = sec->wallptr;
+		ox = wall[wall[j].point2].x - wall[j].x;
+		oy = wall[wall[j].point2].y - wall[j].y;
+		i = nsqrtasm(ox*ox + oy * oy); if (i == 0) i = 1024; else i = 1048576 / i;
+		globalx1 = mulscale10(dmulscale10(ox, singlobalang, -oy, cosglobalang), i);
+		globaly1 = mulscale10(dmulscale10(ox, cosglobalang, oy, singlobalang), i);
+		globalx2 = -globalx1;
+		globaly2 = -globaly1;
 
-        ox = ((wall[j].x-globalposx)<<6); oy = ((wall[j].y-globalposy)<<6);
-        i = dmulscale14(oy,cosglobalang,-ox,singlobalang);
-        j = dmulscale14(ox,cosglobalang,oy,singlobalang);
-        ox = i; oy = j;
-        globalxpanning = globalx1*ox - globaly1*oy;
-        globalypanning = globaly2*ox + globalx2*oy;
-    }
-    
-    // 2. Base FOV scaling logic
-    globalx2 = mulscale16(globalx2,viewingrangerecip);
-    globaly1 = mulscale16(globaly1,viewingrangerecip);
+		ox = ((wall[j].x - globalposx) << 6); oy = ((wall[j].y - globalposy) << 6);
+		i = dmulscale14(oy, cosglobalang, -ox, singlobalang);
+		j = dmulscale14(ox, cosglobalang, oy, singlobalang);
+		ox = i; oy = j;
+		globalxpanning = globalx1 * ox - globaly1 * oy;
+		globalypanning = globaly2 * ox + globalx2 * oy;
+	}
 
-    // --- CEILING PORTAL FOV ZOOM START (LQ2X version) ---
-    // DO: Maintain visual consistency between walls and low-quality floors.
-    if (rendermodeportal && portalzoomadj != 0) 
-    {
-        // Factor should be the same as in high-quality scan.
-        portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1)); 
-        globalx1 = mulscale16(globalx1, portalfovfactor);
-        globalx2 = mulscale16(globalx2, portalfovfactor);
-        globaly1 = mulscale16(globaly1, portalfovfactor);
-        globaly2 = mulscale16(globaly2, portalfovfactor);
-    }
-    // --- CEILING PORTAL FOV ZOOM FINISH ---
+	// 2. Base FOV scaling logic
+	globalx2 = mulscale16(globalx2, viewingrangerecip);
+	globaly1 = mulscale16(globaly1, viewingrangerecip);
 
-    globalxshift = (8-(picsiz[globalpicnum]&15));
-    globalyshift = (8-(picsiz[globalpicnum]>>4));
-    if (globalorientation&8) { globalxshift++; globalyshift++; }
+	// --- CEILING PORTAL FOV ZOOM START (LQ2X version) ---
+	// DO: Maintain visual consistency between walls and low-quality floors.
+	if (rendermodeportal && portalzoomadj != 0)
+	{
+		// Factor should be the same as in high-quality scan.
+		portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1));
+		globalx1 = mulscale16(globalx1, portalfovfactor);
+		globalx2 = mulscale16(globalx2, portalfovfactor);
+		globaly1 = mulscale16(globaly1, portalfovfactor);
+		globaly2 = mulscale16(globaly2, portalfovfactor);
+	}
+	// --- CEILING PORTAL FOV ZOOM FINISH ---
 
-    if ((globalorientation&0x4) > 0)
-    {
-        i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
-        i = globalx2; globalx2 = -globaly1; globaly1 = -i;
-        i = globalx1; globalx1 = globaly2; globaly2 = i;
-    }
-    if ((globalorientation&0x10) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalxpanning = -globalxpanning;
-    if ((globalorientation&0x20) > 0) globalx2 = -globalx2, globaly2 = -globaly2, globalypanning = -globalypanning;
-    globalx1 <<= globalxshift; globaly1 <<= globalxshift;
-    globalx2 <<= globalyshift;  globaly2 <<= globalyshift;
-    globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
-    globalxpanning += (((long)sec->ceilingxpanning)<<24);
-    globalypanning += (((long)sec->ceilingypanning)<<24);
-    globaly1 = (-globalx1-globaly1)*halfxdimen;
-    globalx2 = (globalx2-globaly2)*halfxdimen;
+	globalxshift = (8 - (picsiz[globalpicnum] & 15));
+	globalyshift = (8 - (picsiz[globalpicnum] >> 4));
+	if (globalorientation & 8) { globalxshift++; globalyshift++; }
 
-    // Первичная настройка SMC для обычных потолков
-    sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
-    
-    globalx2 += globaly2*(x1-1);
-    globaly1 += globalx1*(x1-1);
-    globalx1 = mulscale16(globalx1,globalzd);
-    globalx2 = mulscale16(globalx2,globalzd);
-    globaly1 = mulscale16(globaly1,globalzd);
-    globaly2 = mulscale16(globaly2,globalzd);
-    globvis = klabs(mulscale10(globvis,globalzd));
-    
-    // Div0 protection
-    if (pxlzefctr < 1) pxlzefctr = 1;
-    
-    if (!(globalorientation&0x180))
-    {
-        y1 = umost[x1]; y2 = y1;
-        for(x=x1;x<=x2;x++)
-        {
-            twall = umost[x]-1; bwall = min(uplc[x],dmost[x]);
-            if (twall < bwall-1)
-            {
-                if (twall >= y2)
-                {
-                    while (y1 < y2-1)
-                    {
-                        y1++;
-                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                    }
-                    y1 = twall;
-                }
-                else
-                {
-                    while (y1 < twall)
-                    {
-                        y1++;
-                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                    }
-                    while (y1 > twall) lastx[y1--] = x;
-                }
-                while (y2 > bwall)
-                {
-                    y2--;
-                    if (y2 % pxlzefctr == 0) hline(x-1, y2);
-                }
-                while (y2 < bwall) lastx[y2++] = x;
-            }
-            else
-            {
-                while (y1 < y2-1)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                }
-                if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
-                y1 = umost[x+1]; y2 = y1;
-            }
-            globalx2 += globaly2; globaly1 += globalx1;
-        }
-        while (y1 < y2-1)
-        {
-            y1++;
-            if (y1 % pxlzefctr == 0) hline(x2, y1);
-        }
-        faketimerhandler();
-        return;
-    }
-    
-    // this switch saves it from horizontal sprites interference
-    switch(globalorientation&0x180)
-    {
-        case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-        case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-        case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-    }
-    
-    y1 = umost[x1]; y2 = y1;
-    for(x=x1;x<=x2;x++)
-    {
-        twall = umost[x]-1; bwall = min(uplc[x],dmost[x]);
-        if (twall < bwall-1)
-        {
-            if (twall >= y2)
-            {
-                while (y1 < y2-1)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-                }
-                y1 = twall;
-            }
-            else
-            {
-                while (y1 < twall)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-                }
-                while (y1 > twall) lastx[y1--] = x;
-            }
-            while (y2 > bwall)
-            {
-                y2--;
-                if (y2 % pxlzefctr == 0) slowhline(x-1, y2);
-            }
-            while (y2 < bwall) lastx[y2++] = x;
-        }
-        else
-        {
-            while (y1 < y2-1)
-            {
-                y1++;
-                if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-            }
-            if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
-            y1 = umost[x+1]; y2 = y1;
-            }
-        globalx2 += globaly2; globaly1 += globalx1;
-    }
-    while (y1 < y2-1)
-    {
-        y1++;
-        if (y1 % pxlzefctr == 0) slowhline(x2, y1);
-    }
-    faketimerhandler();
+	if ((globalorientation & 0x4) > 0)
+	{
+		i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
+		i = globalx2; globalx2 = -globaly1; globaly1 = -i;
+		i = globalx1; globalx1 = globaly2; globaly2 = i;
+	}
+	if ((globalorientation & 0x10) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalxpanning = -globalxpanning;
+	if ((globalorientation & 0x20) > 0) globalx2 = -globalx2, globaly2 = -globaly2, globalypanning = -globalypanning;
+	globalx1 <<= globalxshift; globaly1 <<= globalxshift;
+	globalx2 <<= globalyshift;  globaly2 <<= globalyshift;
+	globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
+	globalxpanning += (((long)sec->ceilingxpanning) << 24);
+	globalypanning += (((long)sec->ceilingypanning) << 24);
+	globaly1 = (-globalx1 - globaly1)*halfxdimen;
+	globalx2 = (globalx2 - globaly2)*halfxdimen;
+
+	// Initial SMC setup
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
+
+	globalx2 += globaly2 * (x1 - 1);
+	globaly1 += globalx1 * (x1 - 1);
+	globalx1 = mulscale16(globalx1, globalzd);
+	globalx2 = mulscale16(globalx2, globalzd);
+	globaly1 = mulscale16(globaly1, globalzd);
+	globaly2 = mulscale16(globaly2, globalzd);
+	globvis = klabs(mulscale10(globvis, globalzd));
+
+	// Div0 protection
+	if (pxlzefctr < 1) pxlzefctr = 1;
+
+	if (!(globalorientation & 0x180))
+	{
+		y1 = umost[x1]; y2 = y1;
+		for (x = x1; x <= x2; x++)
+		{
+			twall = umost[x] - 1; bwall = min(uplc[x], dmost[x]);
+			if (twall < bwall - 1)
+			{
+				if (twall >= y2)
+				{
+					while (y1 < y2 - 1)
+					{
+						y1++;
+						if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+					}
+					y1 = twall;
+				}
+				else
+				{
+					while (y1 < twall)
+					{
+						y1++;
+						if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+					}
+					while (y1 > twall) lastx[y1--] = x;
+				}
+				while (y2 > bwall)
+				{
+					y2--;
+					if (y2 % pxlzefctr == 0) hline(x - 1, y2);
+				}
+				while (y2 < bwall) lastx[y2++] = x;
+			}
+			else
+			{
+				while (y1 < y2 - 1)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+				}
+				if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
+				y1 = umost[x + 1]; y2 = y1;
+			}
+			globalx2 += globaly2; globaly1 += globalx1;
+		}
+		while (y1 < y2 - 1)
+		{
+			y1++;
+			if (y1 % pxlzefctr == 0) hline(x2, y1);
+		}
+		faketimerhandler();
+		return;
+	}
+
+	// this switch saves it from horizontal sprites interference
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	switch(globalorientation&0x180)
+	{
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
+	}
+	// ---=== lowram - FINISH
+
+	y1 = umost[x1]; y2 = y1;
+	for (x = x1; x <= x2; x++)
+	{
+		twall = umost[x] - 1; bwall = min(uplc[x], dmost[x]);
+		if (twall < bwall - 1)
+		{
+			if (twall >= y2)
+			{
+				while (y1 < y2 - 1)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+				}
+				y1 = twall;
+			}
+			else
+			{
+				while (y1 < twall)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+				}
+				while (y1 > twall) lastx[y1--] = x;
+			}
+			while (y2 > bwall)
+			{
+				y2--;
+				if (y2 % pxlzefctr == 0) slowhline(x - 1, y2);
+			}
+			while (y2 < bwall) lastx[y2++] = x;
+		}
+		else
+		{
+			while (y1 < y2 - 1)
+			{
+				y1++;
+				if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+			}
+			if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
+			y1 = umost[x + 1]; y2 = y1;
+		}
+		globalx2 += globaly2; globaly1 += globalx1;
+	}
+	while (y1 < y2 - 1)
+	{
+		y1++;
+		if (y1 % pxlzefctr == 0) slowhline(x2, y1);
+	}
+	faketimerhandler();
 }
 
 
@@ -2260,8 +2307,9 @@ florscan (long x1, long x2, long sectnum)
 
 florscan_HQ (long x1, long x2, long sectnum)
 {
-	long i, j, ox, oy, x, y1, y2, twall, bwall;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
 	long portalfovfactor; // Local scale factor for portal zoom
+	unsigned char sh;
 	sectortype *sec;
 
 	sec = &sector[sectnum];
@@ -2333,7 +2381,7 @@ florscan_HQ (long x1, long x2, long sectnum)
 
 	globalxshift = (8-(picsiz[globalpicnum]&15));
 	globalyshift = (8-(picsiz[globalpicnum]>>4));
-	if (globalorientation&8) { globalxshift++; globalyshift++; }
+	if (globalorientation&8) {globalxshift++; globalyshift++; }
 
 	// 3. Coordinate transformations (Relative Alignment, Mirroring, etc.)
 	if ((globalorientation&0x4) > 0)
@@ -2352,7 +2400,15 @@ florscan_HQ (long x1, long x2, long sectnum)
 	globaly1 = (-globalx1-globaly1)*halfxdimen;
 	globalx2 = (globalx2-globaly2)*halfxdimen;
 
-	sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
 
 	// 4. Perspective depth calculations
 	globalx2 += globaly2*(x1-1);
@@ -2398,12 +2454,23 @@ florscan_HQ (long x1, long x2, long sectnum)
 		return;
 	}
 
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
 	switch(globalorientation&0x180)
 	{
-		case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-		case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
 	}
+	// ---=== lowram - FINISH
 
 	y1 = max(dplc[x1],umost[x1]); y2 = y1;
 	for(x=x1;x<=x2;x++)
@@ -2437,222 +2504,242 @@ florscan_HQ (long x1, long x2, long sectnum)
 }
 
 
-florscan_LQ2X (long x1, long x2, long sectnum)
+florscan_LQ2X(long x1, long x2, long sectnum)
 {
-    long i, j, ox, oy, x, y1, y2, twall, bwall;
-    long portalfovfactor; // Local scale factor for portal zoom sync
-    sectortype *sec;
+	long i, j, ox, oy, x, y1, y2, twall, bwall, xb, yb;
+	long portalfovfactor; // Local scale factor for portal zoom sync
+	unsigned char sh;
+	sectortype *sec;
 
-    sec = &sector[sectnum];
-    if (palookup[sec->floorpal] != globalpalwritten)
-    {
-        globalpalwritten = palookup[sec->floorpal];
-        setpalookupaddress(globalpalwritten);
-    }
+	sec = &sector[sectnum];
+	if (palookup[sec->floorpal] != globalpalwritten)
+	{
+		globalpalwritten = palookup[sec->floorpal];
+		setpalookupaddress(globalpalwritten);
+	}
 
-    globalzd = globalposz-sec->floorz;
-    if (globalzd > 0) return;
-    globalpicnum = sec->floorpicnum;
-    if ((unsigned)globalpicnum >= (unsigned)MAXTILES) globalpicnum = 0;
-    setgotpic(globalpicnum);
-    if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
-    if (picanm[globalpicnum]&192) globalpicnum += animateoffs((short)globalpicnum,(short)sectnum);
+	globalzd = globalposz - sec->floorz;
+	if (globalzd > 0) return;
+	globalpicnum = sec->floorpicnum;
+	if ((unsigned)globalpicnum >= (unsigned)MAXTILES) globalpicnum = 0;
+	setgotpic(globalpicnum);
+	if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
+	if (picanm[globalpicnum] & 192) globalpicnum += animateoffs((short)globalpicnum, (short)sectnum);
 
-    if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
-    globalbufplc = waloff[globalpicnum];
+	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+	globalbufplc = waloff[globalpicnum];
 
-    globalshade = (long)sec->floorshade;
-    globvis = globalcisibility;
-    if (sec->visibility != 0) globvis = mulscale4(globvis,(long)((unsigned char)(sec->visibility+16)));
-    globalorientation = (long)sec->floorstat;
+	globalshade = (long)sec->floorshade;
+	globvis = globalcisibility;
+	if (sec->visibility != 0) globvis = mulscale4(globvis, (long)((unsigned char)(sec->visibility + 16)));
+	globalorientation = (long)sec->floorstat;
 
 
-    if ((globalorientation&64) == 0)
-    {
-        globalx1 = singlobalang; globalx2 = singlobalang;
-        globaly1 = cosglobalang; globaly2 = cosglobalang;
-        globalxpanning = (globalposx<<20);
-        globalypanning = -(globalposy<<20);
-    }
-    else
-    {
-        j = sec->wallptr;
-        ox = wall[wall[j].point2].x - wall[j].x;
-        oy = wall[wall[j].point2].y - wall[j].y;
-        i = nsqrtasm(ox*ox+oy*oy); if (i == 0) i = 1024; else i = 1048576/i;
-        globalx1 = mulscale10(dmulscale10(ox,singlobalang,-oy,cosglobalang),i);
-        globaly1 = mulscale10(dmulscale10(ox,cosglobalang,oy,singlobalang),i);
-        globalx2 = -globalx1;
-        globaly2 = -globaly1;
+	if ((globalorientation & 64) == 0)
+	{
+		globalx1 = singlobalang; globalx2 = singlobalang;
+		globaly1 = cosglobalang; globaly2 = cosglobalang;
+		globalxpanning = (globalposx << 20);
+		globalypanning = -(globalposy << 20);
+	}
+	else
+	{
+		j = sec->wallptr;
+		ox = wall[wall[j].point2].x - wall[j].x;
+		oy = wall[wall[j].point2].y - wall[j].y;
+		i = nsqrtasm(ox*ox + oy * oy); if (i == 0) i = 1024; else i = 1048576 / i;
+		globalx1 = mulscale10(dmulscale10(ox, singlobalang, -oy, cosglobalang), i);
+		globaly1 = mulscale10(dmulscale10(ox, cosglobalang, oy, singlobalang), i);
+		globalx2 = -globalx1;
+		globaly2 = -globaly1;
 
-        ox = ((wall[j].x-globalposx)<<6); oy = ((wall[j].y-globalposy)<<6);
-        i = dmulscale14(oy,cosglobalang,-ox,singlobalang);
-        j = dmulscale14(ox,cosglobalang,oy,singlobalang);
-        ox = i; oy = j;
-        globalxpanning = globalx1*ox - globaly1*oy;
-        globalypanning = globaly2*ox + globalx2*oy;
-    }
+		ox = ((wall[j].x - globalposx) << 6); oy = ((wall[j].y - globalposy) << 6);
+		i = dmulscale14(oy, cosglobalang, -ox, singlobalang);
+		j = dmulscale14(ox, cosglobalang, oy, singlobalang);
+		ox = i; oy = j;
+		globalxpanning = globalx1 * ox - globaly1 * oy;
+		globalypanning = globaly2 * ox + globalx2 * oy;
+	}
 
-    // 2. Apply FOV scaling
-    globalx2 = mulscale16(globalx2,viewingrangerecip);
-    globaly1 = mulscale16(globaly1,viewingrangerecip);
+	// 2. Apply FOV scaling
+	globalx2 = mulscale16(globalx2, viewingrangerecip);
+	globaly1 = mulscale16(globaly1, viewingrangerecip);
 
-    // --- FLOOR PORTAL FOV ZOOM START (LQ2X version) ---
-    // Synchronize LQ floor scale with the portal's zoomed FOV.
-    if (rendermodeportal && portalzoomadj != 0) 
-    {
-        // Scale the texture vectors before coordinate system transformation.
-        portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1)); 
-        globalx1 = mulscale16(globalx1, portalfovfactor);
-        globalx2 = mulscale16(globalx2, portalfovfactor);
-        globaly1 = mulscale16(globaly1, portalfovfactor);
-        globaly2 = mulscale16(globaly2, portalfovfactor);
-    }
-    globalxshift = (8-(picsiz[globalpicnum]&15));
-    globalyshift = (8-(picsiz[globalpicnum]>>4));
-    if (globalorientation&8) { globalxshift++; globalyshift++; }
+	// --- FLOOR PORTAL FOV ZOOM START (LQ2X version) ---
+	// Synchronize LQ floor scale with the portal's zoomed FOV.
+	if (rendermodeportal && portalzoomadj != 0)
+	{
+		// Scale the texture vectors before coordinate system transformation.
+		portalfovfactor = divscale16(65536, 65536 + (portalzoomadj >> 1));
+		globalx1 = mulscale16(globalx1, portalfovfactor);
+		globalx2 = mulscale16(globalx2, portalfovfactor);
+		globaly1 = mulscale16(globaly1, portalfovfactor);
+		globaly2 = mulscale16(globaly2, portalfovfactor);
+	}
+	globalxshift = (8 - (picsiz[globalpicnum] & 15));
+	globalyshift = (8 - (picsiz[globalpicnum] >> 4));
+	if (globalorientation & 8) { globalxshift++; globalyshift++; }
 
-    if ((globalorientation&0x4) > 0)
-    {
-        i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
-        i = globalx2; globalx2 = -globaly1; globaly1 = -i;
-        i = globalx1; globalx1 = globaly2; globaly2 = i;
-    }
-    if ((globalorientation&0x10) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalxpanning = -globalxpanning;
-    if ((globalorientation&0x20) > 0) globalx2 = -globalx2, globaly2 = -globaly2, globalypanning = -globalypanning;
-    globalx1 <<= globalxshift; globaly1 <<= globalxshift;
-    globalx2 <<= globalyshift;  globaly2 <<= globalyshift;
-    globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
-    globalxpanning += (((long)sec->floorxpanning)<<24);
-    globalypanning += (((long)sec->floorypanning)<<24);
-    globaly1 = (-globalx1-globaly1)*halfxdimen;
-    globalx2 = (globalx2-globaly2)*halfxdimen;
+	if ((globalorientation & 0x4) > 0)
+	{
+		i = globalxpanning; globalxpanning = globalypanning; globalypanning = i;
+		i = globalx2; globalx2 = -globaly1; globaly1 = -i;
+		i = globalx1; globalx1 = globaly2; globaly2 = i;
+	}
+	if ((globalorientation & 0x10) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalxpanning = -globalxpanning;
+	if ((globalorientation & 0x20) > 0) globalx2 = -globalx2, globaly2 = -globaly2, globalypanning = -globalypanning;
+	globalx1 <<= globalxshift; globaly1 <<= globalxshift;
+	globalx2 <<= globalyshift;  globaly2 <<= globalyshift;
+	globalxpanning <<= globalxshift; globalypanning <<= globalyshift;
+	globalxpanning += (((long)sec->floorxpanning) << 24);
+	globalypanning += (((long)sec->floorypanning) << 24);
+	globaly1 = (-globalx1 - globaly1)*halfxdimen;
+	globalx2 = (globalx2 - globaly2)*halfxdimen;
 
-    // Regular floors setup (without transparency)
-    sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+	// Initial floors SMC setup (no transparency)
+	// ---=== lowram - START
+		//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+	{
+		sh = tile_shift[globalpicnum];
+		xb = (picsiz[globalpicnum] & 15) - sh;
+		yb = (picsiz[globalpicnum] >> 4) - sh;
+		sethlinesizes(xb, yb, globalbufplc);
+	}
+	// ---=== lowram - FINISH
 
-    globalx2 += globaly2*(x1-1);
-    globaly1 += globalx1*(x1-1);
-    globalx1 = mulscale16(globalx1,globalzd);
-    globalx2 = mulscale16(globalx2,globalzd);
-    globaly1 = mulscale16(globaly1,globalzd);
-    globaly2 = mulscale16(globaly2,globalzd);
-    globvis = klabs(mulscale10(globvis,globalzd));
+	globalx2 += globaly2 * (x1 - 1);
+	globaly1 += globalx1 * (x1 - 1);
+	globalx1 = mulscale16(globalx1, globalzd);
+	globalx2 = mulscale16(globalx2, globalzd);
+	globaly1 = mulscale16(globaly1, globalzd);
+	globaly2 = mulscale16(globaly2, globalzd);
+	globvis = klabs(mulscale10(globvis, globalzd));
 
-    // Safe coeff (div0 protection)
-    if (pxlzefctr < 1) pxlzefctr = 1;
+	// Safe coeff (div0 protection)
+	if (pxlzefctr < 1) pxlzefctr = 1;
 
-    if (!(globalorientation&0x180))
-    {
-        y1 = max(dplc[x1],umost[x1]); y2 = y1;
-        for(x=x1;x<=x2;x++)
-        {
-            twall = max(dplc[x],umost[x])-1; bwall = dmost[x];
-            if (twall < bwall-1)
-            {
-                if (twall >= y2)
-                {
-                    while (y1 < y2-1)
-                    {
-                        y1++;
-                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                    }
-                    y1 = twall;
-                }
-                else
-                {
-                    while (y1 < twall)
-                    {
-                        y1++;
-                        if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                    }
-                    while (y1 > twall) lastx[y1--] = x;
-                }
-                while (y2 > bwall)
-                {
-                    y2--;
-                    if (y2 % pxlzefctr == 0) hline(x-1, y2);
-                }
-                while (y2 < bwall) lastx[y2++] = x;
-            }
-            else
-            {
-                while (y1 < y2-1)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) hline(x-1, y1);
-                }
-                if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
-                y1 = max(dplc[x+1],umost[x+1]); y2 = y1;
-            }
-            globalx2 += globaly2; globaly1 += globalx1;
-        }
-        while (y1 < y2-1)
-        {
-            y1++;
-            if (y1 % pxlzefctr == 0) hline(x2, y1);
-        }
-        faketimerhandler();
-        return;
-    }
+	if (!(globalorientation & 0x180))
+	{
+		y1 = max(dplc[x1], umost[x1]); y2 = y1;
+		for (x = x1; x <= x2; x++)
+		{
+			twall = max(dplc[x], umost[x]) - 1; bwall = dmost[x];
+			if (twall < bwall - 1)
+			{
+				if (twall >= y2)
+				{
+					while (y1 < y2 - 1)
+					{
+						y1++;
+						if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+					}
+					y1 = twall;
+				}
+				else
+				{
+					while (y1 < twall)
+					{
+						y1++;
+						if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+					}
+					while (y1 > twall) lastx[y1--] = x;
+				}
+				while (y2 > bwall)
+				{
+					y2--;
+					if (y2 % pxlzefctr == 0) hline(x - 1, y2);
+				}
+				while (y2 < bwall) lastx[y2++] = x;
+			}
+			else
+			{
+				while (y1 < y2 - 1)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) hline(x - 1, y1);
+				}
+				if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
+				y1 = max(dplc[x + 1], umost[x + 1]); y2 = y1;
+			}
+			globalx2 += globaly2; globaly1 += globalx1;
+		}
+		while (y1 < y2 - 1)
+		{
+			y1++;
+			if (y1 % pxlzefctr == 0) hline(x2, y1);
+		}
+		faketimerhandler();
+		return;
+	}
 
-    // This block restores "brains" of assembler for floors after flat horizontal sprites were processed
-    switch(globalorientation&0x180)
-    {
-        case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-        case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-        case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
-    }
+	// This block restores "brains" of assembler for floors after flat horizontal sprites were processed
+	// ---=== lowram - START
+		//switch(globalorientation&0x180)
+		//{
+		//	case 128: msethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 256: settransnormal(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//	case 384: settransreverse(); tsethlineshift(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4); break;
+		//}
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	switch(globalorientation&0x180)
+	{
+		case 128: msethlineshift(xb, yb); break;
+		case 256: settransnormal(); tsethlineshift(xb, yb); break;
+		case 384: settransreverse(); tsethlineshift(xb, yb); break;
+	}
+	// ---=== lowram - FINISH
 
-    y1 = max(dplc[x1],umost[x1]); y2 = y1;
-    for(x=x1;x<=x2;x++)
-    {
-        twall = max(dplc[x],umost[x])-1; bwall = dmost[x];
-        if (twall < bwall-1)
-        {
-            if (twall >= y2)
-            {
-                while (y1 < y2-1)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-                }
-                y1 = twall;
-            }
-            else
-            {
-                while (y1 < twall)
-                {
-                    y1++;
-                    if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-                }
-                while (y1 > twall) lastx[y1--] = x;
-            }
-            while (y2 > bwall)
-            {
-                y2--;
-                if (y2 % pxlzefctr == 0) slowhline(x-1, y2);
-            }
-            while (y2 < bwall) lastx[y2++] = x;
-        }
-        else
-        {
-            while (y1 < y2-1)
-            {
-                y1++;
-                if (y1 % pxlzefctr == 0) slowhline(x-1, y1);
-            }
-            if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
-            y1 = max(dplc[x+1],umost[x+1]); y2 = y1;
-        }
-        globalx2 += globaly2; globaly1 += globalx1;
-    }
-    while (y1 < y2-1)
-    {
-        y1++;
-        if (y1 % pxlzefctr == 0) slowhline(x2, y1);
-    }
-    faketimerhandler();
+	y1 = max(dplc[x1], umost[x1]); y2 = y1;
+	for (x = x1; x <= x2; x++)
+	{
+		twall = max(dplc[x], umost[x]) - 1; bwall = dmost[x];
+		if (twall < bwall - 1)
+		{
+			if (twall >= y2)
+			{
+				while (y1 < y2 - 1)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+				}
+				y1 = twall;
+			}
+			else
+			{
+				while (y1 < twall)
+				{
+					y1++;
+					if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+				}
+				while (y1 > twall) lastx[y1--] = x;
+			}
+			while (y2 > bwall)
+			{
+				y2--;
+				if (y2 % pxlzefctr == 0) slowhline(x - 1, y2);
+			}
+			while (y2 < bwall) lastx[y2++] = x;
+		}
+		else
+		{
+			while (y1 < y2 - 1)
+			{
+				y1++;
+				if (y1 % pxlzefctr == 0) slowhline(x - 1, y1);
+			}
+			if (x == x2) { globalx2 += globaly2; globaly1 += globalx1; break; }
+			y1 = max(dplc[x + 1], umost[x + 1]); y2 = y1;
+		}
+		globalx2 += globaly2; globaly1 += globalx1;
+	}
+	while (y1 < y2 - 1)
+	{
+		y1++;
+		if (y1 % pxlzefctr == 0) slowhline(x2, y1);
+	}
+	faketimerhandler();
 }
 
 
@@ -2695,6 +2782,7 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	long i, x, xnice, ynice, fpalookup, shade;
 	long y1ve[4], y2ve[4], u4, d4, dax, z, tsizx, tsizy;
 	char bad;
+	unsigned char sh;
 
 	tsizx = tilesizx[globalpicnum];
 	tsizy = tilesizy[globalpicnum];
@@ -2704,6 +2792,16 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	if ((dwal[x1] < 0) && (dwal[x2] < 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	xnice = (pow2long[picsiz[globalpicnum]&15] == tsizx);
 	if (xnice) tsizx--;
@@ -2725,7 +2823,8 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2743,7 +2842,8 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 			y2ve[z] = min(dwal[x+z],dmost[x+z])-1;
 			if (y2ve[z] < y1ve[z]) { bad += pow2char[z]; continue; }
 
-			i = lwal[x+z] + globalxpanning;
+				//i = lwal[x+z] + globalxpanning; // old
+			i = (lwal[x+z] + globalxpanning) >> sh; // considers lowram
 			if (i >= tsizx) { if (xnice == 0) i %= tsizx; else i &= tsizx; }
 			if (ynice == 0) i *= tsizy; else i <<= tsizy;
 			bufplce[z] = waloff[globalpicnum]+i;
@@ -2800,7 +2900,8 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -2814,273 +2915,287 @@ wallscan_HQ(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 wallscan_LQ2X(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 {
-    long i, x, xnice, ynice, fpalookup, shade;
-    long y1ve[4], y2ve[4], u4, d4, dax, z, tsizx, tsizy;
-    long xstep, x_effective, x_base, j, current_x, x_index, next_x, skip;
-    char bad;
+	long i, x, xnice, ynice, fpalookup, shade;
+	long y1ve[4], y2ve[4], u4, d4, dax, z, tsizx, tsizy;
+	long xstep, x_effective, x_base, j, current_x, x_index, next_x, skip;
+	char bad;
+	unsigned char sh;
 
-    tsizx = tilesizx[globalpicnum];
-    tsizy = tilesizy[globalpicnum];
-    setgotpic(globalpicnum);
+	tsizx = tilesizx[globalpicnum];
+	tsizy = tilesizy[globalpicnum];
+	setgotpic(globalpicnum);
 
-    if ((tsizx <= 0) || (tsizy <= 0))
-    {
-        return;
-    }
+	if ((tsizx <= 0) || (tsizy <= 0))
+	{
+		return;
+	}
 
-    if ((uwal[x1] > ydimen) && (uwal[x2] > ydimen))
-    {
-        return;
-    }
+	if ((uwal[x1] > ydimen) && (uwal[x2] > ydimen))
+	{
+		return;
+	}
 
-    if ((dwal[x1] < 0) && (dwal[x2] < 0))
-    {
-        return;
-    }
+	if ((dwal[x1] < 0) && (dwal[x2] < 0))
+	{
+		return;
+	}
 
-    if (waloff[globalpicnum] == 0)
-    {
-        loadtile(globalpicnum);
-    }
+	if (waloff[globalpicnum] == 0)
+	{
+		loadtile(globalpicnum);
+	}
 
-    xnice = (pow2long[picsiz[globalpicnum] & 15] == tsizx);
-    if (xnice)
-    {
-        tsizx--;
-    }
-    ynice = (pow2long[picsiz[globalpicnum] >> 4] == tsizy);
-    if (ynice)
-    {
-        tsizy = (picsiz[globalpicnum] >> 4);
-    }
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
-    fpalookup = FP_OFF(palookup[globalpal]);
+	xnice = (pow2long[picsiz[globalpicnum] & 15] == tsizx);
+	if (xnice)
+	{
+		tsizx--;
+	}
+	ynice = (pow2long[picsiz[globalpicnum] >> 4] == tsizy);
+	if (ynice)
+	{
+		tsizy = (picsiz[globalpicnum] >> 4);
+	}
 
-    setupvlineasm(globalshiftval);
+	fpalookup = FP_OFF(palookup[globalpal]);
 
-    x = x1;
-    while ((umost[x] > dmost[x]) && (x <= x2))
-    {
-        x++;
-    }
+	setupvlineasm(globalshiftval);
 
-    // Low Detail Implementation Start
-    xstep = pxlzefctr; // Use pxlzefctr directly
+	x = x1;
+	while ((umost[x] > dmost[x]) && (x <= x2))
+	{
+		x++;
+	}
 
-    x = x1;
-    while ((x <= x2) && (((x + frameoffset) & 3) != 0))
-    {
-        if ((x - x1) % xstep != 0)
-        {
-            x++;
-        }  // Low detail skip
-        else
-        {
-            y1ve[0] = max(uwal[x], umost[x]);
-            y2ve[0] = min(dwal[x], dmost[x]);
+	// Low Detail Implementation Start
+	xstep = pxlzefctr; // Use pxlzefctr directly
 
-            if (y2ve[0] <= y1ve[0])
-            {
-                x++;
-            }
-            else
-            {
-                palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x], globvis), globalshade) << 8);
+	x = x1;
+	while ((x <= x2) && (((x + frameoffset) & 3) != 0))
+	{
+		if ((x - x1) % xstep != 0)
+		{
+			x++;
+		}  // Low detail skip
+		else
+		{
+			y1ve[0] = max(uwal[x], umost[x]);
+			y2ve[0] = min(dwal[x], dmost[x]);
 
-                bufplce[0] = lwal[x] + globalxpanning;
-                if (bufplce[0] >= tsizx)
-                {
-                    if (xnice == 0)
-                    {
-                        bufplce[0] %= tsizx;
-                    }
-                    else
-                    {
-                        bufplce[0] &= tsizx;
-                    }
-                }
-                if (ynice == 0)
-                {
-                    bufplce[0] *= tsizy;
-                }
-                else
-                {
-                    bufplce[0] <<= tsizy;
-                }
+			if (y2ve[0] <= y1ve[0])
+			{
+				x++;
+			}
+			else
+			{
+				palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x], globvis), globalshade) << 8);
 
-                vince[0] = swal[x] * globalyscale;
-                vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
+					//bufplce[0] = lwal[x] + globalxpanning; // old
+		                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
+				if (bufplce[0] >= tsizx)
+				{
+					if (xnice == 0)
+					{
+						bufplce[0] %= tsizx;
+					}
+					else
+					{
+						bufplce[0] &= tsizx;
+					}
+				}
+				if (ynice == 0)
+				{
+					bufplce[0] *= tsizy;
+				}
+				else
+				{
+					bufplce[0] <<= tsizy;
+				}
 
-                vlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], x + frameoffset + ylookup[y1ve[0]]);
-                x++;
-            }
-        }
-    }
+				vince[0] = swal[x] * globalyscale;
+				vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
 
-    x_base = x; // save to x, so we don't have to save to a temporary variable
+				vlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], x + frameoffset + ylookup[y1ve[0]]);
+				x++;
+			}
+		}
+	}
 
-    while (x_base <= x2 - 3)
-    {
-        // Apply low detail skip to the base x, other skip will be handled further
-        if ((x_base - x1) % xstep != 0)
-        {
-            if (pxlzefctr == 1)
-            {
-                x_base+=4;
-            }
-            else
-            {
-                next_x = x1 + ((x_base - x1) / xstep + 1) * xstep;
-                skip = next_x - x_base;
-                x_base+=skip;
-            }
-        }
-        else
-        {
-            bad = 0;
-            z=3;
-            while(z >= 0)  // for (z = 3; z >= 0; z--)
-            {
-                current_x = x_base + z;
+	x_base = x; // save to x, so we don't have to save to a temporary variable
 
-                y1ve[z] = max(uwal[current_x], umost[current_x]);
-                y2ve[z] = min(dwal[current_x], dmost[current_x]) - 1;
+	while (x_base <= x2 - 3)
+	{
+		// Apply low detail skip to the base x, other skip will be handled further
+		if ((x_base - x1) % xstep != 0)
+		{
+			if (pxlzefctr == 1)
+			{
+				x_base += 4;
+			}
+			else
+			{
+				next_x = x1 + ((x_base - x1) / xstep + 1) * xstep;
+				skip = next_x - x_base;
+				x_base += skip;
+			}
+		}
+		else
+		{
+			bad = 0;
+			z = 3;
+			while (z >= 0)  // for (z = 3; z >= 0; z--)
+			{
+				current_x = x_base + z;
 
-                if (y2ve[z] < y1ve[z])
-                {
-                    bad += pow2char[z];
-                }
-                else
-                {
-                    i = lwal[current_x] + globalxpanning;
-                    if (i >= tsizx)
-                    {
-                        if (xnice == 0)
-                        {
-                            i %= tsizx;
-                        }
-                        else
-                        {
-                            i &= tsizx;
-                        }
-                    }
-                    if (ynice == 0)
-                    {
-                        i *= tsizy;
-                    }
-                    else
-                    {
-                        i <<= tsizy;
-                    }
-                    bufplce[z] = waloff[globalpicnum] + i;
+				y1ve[z] = max(uwal[current_x], umost[current_x]);
+				y2ve[z] = min(dwal[current_x], dmost[current_x]) - 1;
 
-                    vince[z] = swal[current_x] * globalyscale;
-                    vplce[z] = globalzd + vince[z] * (y1ve[z] - globalhoriz + 1);
-                }
-                z--;
-            }
+				if (y2ve[z] < y1ve[z])
+				{
+					bad += pow2char[z];
+				}
+				else
+				{
+						//i = lwal[current_x] + globalxpanning; // old
+					i = (lwal[current_x] + globalxpanning) >> sh; // considers lowram
+					if (i >= tsizx)
+					{
+						if (xnice == 0)
+						{
+							i %= tsizx;
+						}
+						else
+						{
+							i &= tsizx;
+						}
+					}
+					if (ynice == 0)
+					{
+						i *= tsizy;
+					}
+					else
+					{
+						i <<= tsizy;
+					}
+					bufplce[z] = waloff[globalpicnum] + i;
 
-            if (bad == 15)
-            {
-                x_base+=4;
-            }
-            else
-            {
-                palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_base], globvis), globalshade) << 8);
-                palookupoffse[3] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 3], globvis), globalshade) << 8);
+					vince[z] = swal[current_x] * globalyscale;
+					vplce[z] = globalzd + vince[z] * (y1ve[z] - globalhoriz + 1);
+				}
+				z--;
+			}
 
-                if ((palookupoffse[0] == palookupoffse[3]) && ((bad & 0x9) == 0))
-                {
-                    palookupoffse[1] = palookupoffse[0];
-                    palookupoffse[2] = palookupoffse[0];
-                }
-                else
-                {
-                    palookupoffse[1] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 1], globvis), globalshade) << 8);
-                    palookupoffse[2] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 2], globvis), globalshade) << 8);
-                }
+			if (bad == 15)
+			{
+				x_base += 4;
+			}
+			else
+			{
+				palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_base], globvis), globalshade) << 8);
+				palookupoffse[3] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 3], globvis), globalshade) << 8);
 
-                u4 = max(max(y1ve[0], y1ve[1]), max(y1ve[2], y1ve[3]));
-                d4 = min(min(y2ve[0], y2ve[1]), min(y2ve[2], y2ve[3]));
+				if ((palookupoffse[0] == palookupoffse[3]) && ((bad & 0x9) == 0))
+				{
+					palookupoffse[1] = palookupoffse[0];
+					palookupoffse[2] = palookupoffse[0];
+				}
+				else
+				{
+					palookupoffse[1] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 1], globvis), globalshade) << 8);
+					palookupoffse[2] = fpalookup + (getpalookup((long)mulscale16(swal[x_base + 2], globvis), globalshade) << 8);
+				}
 
-                if ((bad != 0) || (u4 >= d4))
-                {
-                    if (!(bad & 1)) prevlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0], vplce[0], bufplce[0], ylookup[y1ve[0]] + x_base + frameoffset + 0);
-                    if (!(bad & 2)) prevlineasm1(vince[1], palookupoffse[1], y2ve[1] - y1ve[1], vplce[1], bufplce[1], ylookup[y1ve[1]] + x_base + frameoffset + 1);
-                    if (!(bad & 4)) prevlineasm1(vince[2], palookupoffse[2], y2ve[2] - y1ve[2], vplce[2], bufplce[2], ylookup[y1ve[2]] + x_base + frameoffset + 2);
-                    if (!(bad & 8)) prevlineasm1(vince[3], palookupoffse[3], y2ve[3] - y1ve[3], vplce[3], bufplce[3], ylookup[y1ve[3]] + x_base + frameoffset + 3);
+				u4 = max(max(y1ve[0], y1ve[1]), max(y1ve[2], y1ve[3]));
+				d4 = min(min(y2ve[0], y2ve[1]), min(y2ve[2], y2ve[3]));
 
-                }
-                else
-                {
-                    if (u4 > y1ve[0]) vplce[0] = prevlineasm1(vince[0], palookupoffse[0], u4 - y1ve[0] - 1, vplce[0], bufplce[0], ylookup[y1ve[0]] + x_base + frameoffset + 0);
-                    if (u4 > y1ve[1]) vplce[1] = prevlineasm1(vince[1], palookupoffse[1], u4 - y1ve[1] - 1, vplce[1], bufplce[1], ylookup[y1ve[1]] + x_base + frameoffset + 1);
-                    if (u4 > y1ve[2]) vplce[2] = prevlineasm1(vince[2], palookupoffse[2], u4 - y1ve[2] - 1, vplce[2], bufplce[2], ylookup[y1ve[2]] + x_base + frameoffset + 2);
-                    if (u4 > y1ve[3]) vplce[3] = prevlineasm1(vince[3], palookupoffse[3], u4 - y1ve[3] - 1, vplce[3], bufplce[3], ylookup[y1ve[3]] + x_base + frameoffset + 3);
+				if ((bad != 0) || (u4 >= d4))
+				{
+					if (!(bad & 1)) prevlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0], vplce[0], bufplce[0], ylookup[y1ve[0]] + x_base + frameoffset + 0);
+					if (!(bad & 2)) prevlineasm1(vince[1], palookupoffse[1], y2ve[1] - y1ve[1], vplce[1], bufplce[1], ylookup[y1ve[1]] + x_base + frameoffset + 1);
+					if (!(bad & 4)) prevlineasm1(vince[2], palookupoffse[2], y2ve[2] - y1ve[2], vplce[2], bufplce[2], ylookup[y1ve[2]] + x_base + frameoffset + 2);
+					if (!(bad & 8)) prevlineasm1(vince[3], palookupoffse[3], y2ve[3] - y1ve[3], vplce[3], bufplce[3], ylookup[y1ve[3]] + x_base + frameoffset + 3);
 
-                    if (d4 >= u4) vlineasm4(d4 - u4 + 1, ylookup[u4] + x_base + frameoffset);
+				}
+				else
+				{
+					if (u4 > y1ve[0]) vplce[0] = prevlineasm1(vince[0], palookupoffse[0], u4 - y1ve[0] - 1, vplce[0], bufplce[0], ylookup[y1ve[0]] + x_base + frameoffset + 0);
+					if (u4 > y1ve[1]) vplce[1] = prevlineasm1(vince[1], palookupoffse[1], u4 - y1ve[1] - 1, vplce[1], bufplce[1], ylookup[y1ve[1]] + x_base + frameoffset + 1);
+					if (u4 > y1ve[2]) vplce[2] = prevlineasm1(vince[2], palookupoffse[2], u4 - y1ve[2] - 1, vplce[2], bufplce[2], ylookup[y1ve[2]] + x_base + frameoffset + 2);
+					if (u4 > y1ve[3]) vplce[3] = prevlineasm1(vince[3], palookupoffse[3], u4 - y1ve[3] - 1, vplce[3], bufplce[3], ylookup[y1ve[3]] + x_base + frameoffset + 3);
 
-                    i = x_base + frameoffset + ylookup[d4 + 1];
-                    if (y2ve[0] > d4) prevlineasm1(vince[0], palookupoffse[0], y2ve[0] - d4 - 1, vplce[0], bufplce[0], i + 0);
-                    if (y2ve[1] > d4) prevlineasm1(vince[1], palookupoffse[1], y2ve[1] - d4 - 1, vplce[1], bufplce[1], i + 1);
-                    if (y2ve[2] > d4) prevlineasm1(vince[2], palookupoffse[2], y2ve[2] - d4 - 1, vplce[2], bufplce[2], i + 2);
-                    if (y2ve[3] > d4) prevlineasm1(vince[3], palookupoffse[3], y2ve[3] - d4 - 1, vplce[3], bufplce[3], i + 3);
-                }
-                x_base+=4;
-            }
-        }
+					if (d4 >= u4) vlineasm4(d4 - u4 + 1, ylookup[u4] + x_base + frameoffset);
 
-        while (x_base <= x2)
-        {
-            if ((x_base - x1) % xstep != 0)
-            {
-                x_base++;
-            }
-            else
-            {
-                y1ve[0] = max(uwal[x_base], umost[x_base]);
-                y2ve[0] = min(dwal[x_base], dmost[x_base]);
+					i = x_base + frameoffset + ylookup[d4 + 1];
+					if (y2ve[0] > d4) prevlineasm1(vince[0], palookupoffse[0], y2ve[0] - d4 - 1, vplce[0], bufplce[0], i + 0);
+					if (y2ve[1] > d4) prevlineasm1(vince[1], palookupoffse[1], y2ve[1] - d4 - 1, vplce[1], bufplce[1], i + 1);
+					if (y2ve[2] > d4) prevlineasm1(vince[2], palookupoffse[2], y2ve[2] - d4 - 1, vplce[2], bufplce[2], i + 2);
+					if (y2ve[3] > d4) prevlineasm1(vince[3], palookupoffse[3], y2ve[3] - d4 - 1, vplce[3], bufplce[3], i + 3);
+				}
+				x_base += 4;
+			}
+		}
 
-                if (y2ve[0] <= y1ve[0])
-                {
-                    x_base++;
-                }
-                else
-                {
-                    palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_base], globvis), globalshade) << 8);
+		while (x_base <= x2)
+		{
+			if ((x_base - x1) % xstep != 0)
+			{
+				x_base++;
+			}
+			else
+			{
+				y1ve[0] = max(uwal[x_base], umost[x_base]);
+				y2ve[0] = min(dwal[x_base], dmost[x_base]);
 
-                    bufplce[0] = lwal[x_base] + globalxpanning;
-                    if (bufplce[0] >= tsizx)
-                    {
-                        if (xnice == 0)
-                        {
-                            bufplce[0] %= tsizx;
-                        }
-                        else
-                        {
-                            bufplce[0] &= tsizx;
-                        }
-                    }
-                    if (ynice == 0)
-                    {
-                        bufplce[0] *= tsizy;
-                    }
-                    else
-                    {
-                        bufplce[0] <<= tsizy;
-                    }
+				if (y2ve[0] <= y1ve[0])
+				{
+					x_base++;
+				}
+				else
+				{
+					palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_base], globvis), globalshade) << 8);
 
-                    vince[0] = swal[x_base] * globalyscale;
-                    vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
+						//bufplce[0] = lwal[x_base] + globalxpanning; // old
+			                bufplce[0] = (lwal[x_base] + globalxpanning) >> sh; // considers lowram
+					if (bufplce[0] >= tsizx)
+					{
+						if (xnice == 0)
+						{
+							bufplce[0] %= tsizx;
+						}
+						else
+						{
+							bufplce[0] &= tsizx;
+						}
+					}
+					if (ynice == 0)
+					{
+						bufplce[0] *= tsizy;
+					}
+					else
+					{
+						bufplce[0] <<= tsizy;
+					}
 
-                    vlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], x_base + frameoffset + ylookup[y1ve[0]]);
-                    x_base++;
-                }
-            }
-        }
+					vince[0] = swal[x_base] * globalyscale;
+					vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
 
-        faketimerhandler();
-    }
+					vlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], x_base + frameoffset + ylookup[y1ve[0]]);
+					x_base++;
+				}
+			}
+		}
+
+		faketimerhandler();
+	}
 }
 
 
@@ -3091,6 +3206,7 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	long i, x, startx, xnice, ynice, fpalookup, shade;
 	long y1ve[4], y2ve[4], u4, d4, dax, z, p, tsizx, tsizy;
 	char bad;
+	unsigned char sh;
 
 	tsizx = tilesizx[globalpicnum];
 	tsizy = tilesizy[globalpicnum];
@@ -3100,6 +3216,16 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 	if ((dwal[x1] < 0) && (dwal[x2] < 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	startx = x1;
 
@@ -3125,7 +3251,8 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -3143,7 +3270,8 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 			y2ve[z] = min(dwal[dax],startdmost[dax+windowx1]-windowy1)-1;
 			if (y2ve[z] < y1ve[z]) { bad += pow2char[z]; continue; }
 
-			i = lwal[dax] + globalxpanning;
+				//i = lwal[dax] + globalxpanning; // old
+			i = (lwal[dax] + globalxpanning) >> sh; // considers lowram
 			if (i >= tsizx) { if (xnice == 0) i %= tsizx; else i &= tsizx; }
 			if (ynice == 0) i *= tsizy; else i <<= tsizy;
 			bufplce[z] = waloff[globalpicnum]+i;
@@ -3200,7 +3328,9 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 		palookupoffse[0] = fpalookup+(getpalookup((long)mulscale16(swal[x],globvis),globalshade)<<8);
 
-		bufplce[0] = lwal[x] + globalxpanning;
+			//bufplce[0] = lwal[x] + globalxpanning; // old
+                bufplce[0] = (lwal[x] + globalxpanning) >> sh; // considers lowram
+
 		if (bufplce[0] >= tsizx) { if (xnice == 0) bufplce[0] %= tsizx; else bufplce[0] &= tsizx; }
 		if (ynice == 0) bufplce[0] *= tsizy; else bufplce[0] <<= tsizy;
 
@@ -3214,90 +3344,95 @@ maskwallscan(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 
 maskwallscan_LQ2X(long x1, long x2, short *uwal, short *dwal, long *swal, long *lwal)
 {
-    long i, x, startx, xnice, ynice, fpalookup, shade;
-    long y1ve[4], y2ve[4], u4, d4, dax, z, p, tsizx, tsizy;
-    long xstep, x_effective, x_base, j, current_x, x_index;
-    char bad;
+	long i, x, xnice, ynice, fpalookup, shade;
+	long y1ve[4], y2ve[4], u4, d4, dax, z, p, tsizx, tsizy;
+	long xstep, rem, x_effective, x_base, j, current_x, x_index;
+	char bad;
+	unsigned char sh;
 
-    tsizx = tilesizx[globalpicnum];
-    tsizy = tilesizy[globalpicnum];
-    setgotpic(globalpicnum);
-    if ((tsizx <= 0) || (tsizy <= 0))
-        return;
-    if ((uwal[x1] > ydimen) && (uwal[x2] > ydimen))
-        return;
-    if ((dwal[x1] < 0) && (dwal[x2] < 0))
-        return;
+	tsizx = tilesizx[globalpicnum];
+	tsizy = tilesizy[globalpicnum];
+	setgotpic(globalpicnum);
+	if ((tsizx <= 0) || (tsizy <= 0))               return;
+	if ((uwal[x1] > ydimen) && (uwal[x2] > ydimen)) return;
+	if ((dwal[x1] < 0) && (dwal[x2] < 0))           return;
 
-    if (waloff[globalpicnum] == 0)
-        loadtile(globalpicnum);
+	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
 
-    startx = x1;
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		tsizx >>= sh;
+		tsizy >>= sh;
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
-    xnice = (pow2long[picsiz[globalpicnum] & 15] == tsizx);
-    if (xnice)
-        tsizx = (tsizx - 1);
-    ynice = (pow2long[picsiz[globalpicnum] >> 4] == tsizy);
-    if (ynice)
-        tsizy = (picsiz[globalpicnum] >> 4);
+	xnice = (pow2long[picsiz[globalpicnum] & 15] == tsizx);
+	if (xnice) tsizx = (tsizx - 1);
+	ynice = (pow2long[picsiz[globalpicnum] >> 4] == tsizy);
+	if (ynice) tsizy = (picsiz[globalpicnum] >> 4);
 
-    fpalookup = FP_OFF(palookup[globalpal]);
+	fpalookup = FP_OFF(palookup[globalpal]);
 
-    setupmvlineasm(globalshiftval);
+	setupmvlineasm(globalshiftval);
 
-    x = startx;
-    while ((startumost[x + windowx1] > startdmost[x + windowx1]) && (x <= x2))
-        x++;
+	p = x1 + frameoffset;
 
-    p = x + frameoffset;
+	// Low Detail Implementation Start
+	xstep = pxlzefctr; // Use pxlzefctr directly
+	rem = 0;
 
-    // Low Detail Implementation Start
-    xstep = pxlzefctr; // Use pxlzefctr directly
+	for (x = x1; x <= x2; ++x)
+	{
+		if (rem != 0)
+		{
+			rem--;
+			p++;
+			continue; // Skip this pixel for low detail
+		}
+		rem = xstep - 1;
 
-    for (x = x1; x <= x2; ++x)
-    {
-        if ((x - x1) % xstep != 0)
-        {
-            p++;
-            continue; // Skip this pixel for low detail
-        }
+		if (startumost[x + windowx1] > startdmost[x + windowx1])
+		{
+			p++;
+			continue;
+		}
 
-        x_effective = x; // Use the initial x value for all calculations within the step
+		x_effective = x; // Use the initial x value for all calculations within the step
 
-        y1ve[0] = max(uwal[x_effective], startumost[x_effective + windowx1] - windowy1);
-        y2ve[0] = min(dwal[x_effective], startdmost[x_effective + windowx1] - windowy1);
-        if (y2ve[0] <= y1ve[0])
-        {
-            p++;
-            continue;
-        }
+		y1ve[0] = max(uwal[x_effective], startumost[x_effective + windowx1] - windowy1);
+		y2ve[0] = min(dwal[x_effective], startdmost[x_effective + windowx1] - windowy1);
+		if (y2ve[0] <= y1ve[0])
+		{
+			p++;
+			continue;
+		}
 
-        palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_effective], globvis), globalshade) << 8);
+		palookupoffse[0] = fpalookup + (getpalookup((long)mulscale16(swal[x_effective], globvis), globalshade) << 8);
 
-        bufplce[0] = lwal[x_effective] + globalxpanning;
-        if (bufplce[0] >= tsizx)
-        {
-            if (xnice == 0)
-                bufplce[0] %= tsizx;
-            else
-                bufplce[0] &= tsizx;
-        }
-        if (ynice == 0)
-            bufplce[0] *= tsizy;
-        else
-            bufplce[0] <<= tsizy;
+		//bufplce[0] = lwal[x_effective] + globalxpanning; // old
+		bufplce[0] = (lwal[x_effective] + globalxpanning) >> sh; // considers lowram
+		if (bufplce[0] >= tsizx)
+		{
+			if (xnice == 0) bufplce[0] %= tsizx;
+			else            bufplce[0] &= tsizx;
+		}
+		if (ynice == 0)         bufplce[0] *= tsizy;
+		else                    bufplce[0] <<= tsizy;
 
-        vince[0] = swal[x_effective] * globalyscale;
-        vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
+		vince[0] = swal[x_effective] * globalyscale;
+		vplce[0] = globalzd + vince[0] * (y1ve[0] - globalhoriz + 1);
 
-        mvlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], p + ylookup[y1ve[0]]);
+		mvlineasm1(vince[0], palookupoffse[0], y2ve[0] - y1ve[0] - 1, vplce[0], bufplce[0] + waloff[globalpicnum], p + ylookup[y1ve[0]]);
 
-        p++;
-    }
+		p++;
+	}
 
-    // Low Detail Implementation End
+	// Low Detail Implementation End
 
-    faketimerhandler();
+	faketimerhandler();
 }
 
 
@@ -3309,7 +3444,9 @@ maskwallscan_LQ2X(long x1, long x2, short *uwal, short *dwal, long *swal, long *
 transmaskvline (long x)
 {
 	long vplc, vinc, p, i, palookupoffs, shade, bufplc;
+	long tsizx, tsizy;
 	short y1v, y2v;
+	unsigned char sh;
 
 	if ((x < 0) || (x >= xdimen)) return;
 
@@ -3323,9 +3460,18 @@ transmaskvline (long x)
 	vinc = swall[x]*globalyscale;
 	vplc = globalzd + vinc*(y1v-globalhoriz+1);
 
-	i = lwall[x]+globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplc = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	tsizx = tilesizx[globalpicnum] >> sh;
+	tsizy = tilesizy[globalpicnum] >> sh;
+
+		//i = lwall[x]+globalxpanning; // old
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum]; // old
+		//bufplc = waloff[globalpicnum]+i*tilesizy[globalpicnum]; // old
+	i = (lwall[x] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplc = waloff[globalpicnum] + i * tsizy;
+	// ---=== lowram - FINISH
 
 	p = ylookup[y1v]+x+frameoffset;
 
@@ -3338,7 +3484,9 @@ transmaskvline_LQ2X(long x)
 {
     long vplc, vinc, p, i, palookupoffs, shade, bufplc;
     long xstep, x_effective, x_base, j, current_x, x_index;
+    long tsizx, tsizy;
     short y1v, y2v;
+    unsigned char sh;
 
     if ((x < 0) || (x >= xdimen))
         return;
@@ -3346,18 +3494,27 @@ transmaskvline_LQ2X(long x)
     y1v = max(uwall[x], startumost[x + windowx1] - windowy1);
     y2v = min(dwall[x], startdmost[x + windowx1] - windowy1);
     y2v--;
-    if (y2v < y1v)
-        return;
+    if (y2v < y1v) return;
 
     palookupoffs = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x], globvis), globalshade) << 8);
 
     vinc = swall[x] * globalyscale;
     vplc = globalzd + vinc * (y1v - globalhoriz + 1);
 
-    i = lwall[x] + globalxpanning;
-    if (i >= tilesizx[globalpicnum])
-        i %= tilesizx[globalpicnum];
-    bufplc = waloff[globalpicnum] + i * tilesizy[globalpicnum];
+    // ---=== lowram - START
+    sh = tile_shift[globalpicnum];
+    tsizx = tilesizx[globalpicnum] >> sh;
+    tsizy = tilesizy[globalpicnum] >> sh;
+
+        //i = lwall[x] + globalxpanning;
+        //if (i >= tilesizx[globalpicnum])
+        //    i %= tilesizx[globalpicnum];
+        //bufplc = waloff[globalpicnum] + i * tilesizy[globalpicnum];
+    i = (lwall[x] + globalxpanning) >> sh;
+    if (i >= tsizx)
+        i %= tsizx;
+    bufplc = waloff[globalpicnum] + i * tsizy;
+    // ---=== lowram - FINISH
 
     p = ylookup[y1v] + x + frameoffset;
 
@@ -3373,41 +3530,58 @@ transmaskvline_LQ2X(long x)
 
 transmaskvline2 (long x)
 {
-	long i, y1, y2, x2;
-	short y1ve[2], y2ve[2];
+	long i, y1, y2, x2, tsizx, tsizy;
+        short y1ve[2], y2ve[2];
+	unsigned char sh;
 
 	if ((x < 0) || (x >= xdimen)) return;
 	if (x == xdimen-1) { transmaskvline(x); return; }
 
 	x2 = x+1;
 
-	y1ve[0] = max(uwall[x],startumost[x+windowx1]-windowy1);
-	y2ve[0] = min(dwall[x],startdmost[x+windowx1]-windowy1)-1;
-	if (y2ve[0] < y1ve[0]) { transmaskvline(x2); return; }
-	y1ve[1] = max(uwall[x2],startumost[x2+windowx1]-windowy1);
-	y2ve[1] = min(dwall[x2],startdmost[x2+windowx1]-windowy1)-1;
-	if (y2ve[1] < y1ve[1]) { transmaskvline(x); return; }
+        y1ve[0] = max(uwall[x],startumost[x+windowx1]-windowy1);
+        y2ve[0] = min(dwall[x],startdmost[x+windowx1]-windowy1)-1;
+        if (y2ve[0] < y1ve[0]) { transmaskvline(x2); return; }
+        y1ve[1] = max(uwall[x2],startumost[x2+windowx1]-windowy1);
+        y2ve[1] = min(dwall[x2],startdmost[x2+windowx1]-windowy1)-1;
+        if (y2ve[1] < y1ve[1]) { transmaskvline(x); return; }
 
-	palookupoffse[0] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x],globvis),globalshade)<<8);
-	palookupoffse[1] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x2],globvis),globalshade)<<8);
+        palookupoffse[0] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x],globvis),globalshade)<<8);
+        palookupoffse[1] = FP_OFF(palookup[globalpal]) + (getpalookup((long)mulscale16(swall[x2],globvis),globalshade)<<8);
 
-	setuptvlineasm2(globalshiftval,palookupoffse[0],palookupoffse[1]);
+        setuptvlineasm2(globalshiftval,palookupoffse[0],palookupoffse[1]);
 
-	vince[0] = swall[x]*globalyscale;
-	vince[1] = swall[x2]*globalyscale;
-	vplce[0] = globalzd + vince[0]*(y1ve[0]-globalhoriz+1);
-	vplce[1] = globalzd + vince[1]*(y1ve[1]-globalhoriz+1);
+        vince[0] = swall[x]*globalyscale;
+        vince[1] = swall[x2]*globalyscale;
+        vplce[0] = globalzd + vince[0]*(y1ve[0]-globalhoriz+1);
+        vplce[1] = globalzd + vince[1]*(y1ve[1]-globalhoriz+1);
 
-	i = lwall[x] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	tsizx = tilesizx[globalpicnum] >> sh;
+	tsizy = tilesizy[globalpicnum] >> sh;
 
-	i = lwall[x2] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+		// old
+		//i = lwall[x] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// considers lowram
+	i = (lwall[x] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplce[0] = waloff[globalpicnum] + i * tsizy;
 
-	y1 = max(y1ve[0],y1ve[1]);
-	y2 = min(y2ve[0],y2ve[1]);
+		// old
+		//i = lwall[x2] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// considers lowram
+	i = (lwall[x2] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+        bufplce[1] = waloff[globalpicnum] + i * tsizy;
+	// ---=== lowram - FINISH
+
+        y1 = max(y1ve[0],y1ve[1]);
+        y2 = min(y2ve[0],y2ve[1]);
 
 	i = x+frameoffset;
 
@@ -3442,8 +3616,9 @@ transmaskvline2 (long x)
 
 transmaskvline2_LQ2X (long x)
 {
-	long i, y1, y2, x2;
+	long i, y1, y2, x2, tsizx, tsizy;
 	short y1ve[2], y2ve[2];
+	unsigned char sh;
 
 	if ((x < 0) || (x >= xdimen)) return;
 	if (x == xdimen-1)
@@ -3479,13 +3654,27 @@ transmaskvline2_LQ2X (long x)
 	vplce[0] = globalzd + vince[0]*(y1ve[0]-globalhoriz+1);
 	vplce[1] = globalzd + vince[1]*(y1ve[1]-globalhoriz+1);
 
-	i = lwall[x] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	tsizx = tilesizx[globalpicnum] >> sh;
+	tsizy = tilesizy[globalpicnum] >> sh;
 
-	i = lwall[x2] + globalxpanning;
-	if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
-	bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+		// old
+		//i = lwall[x] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[0] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	i = (lwall[x] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplce[0] = waloff[globalpicnum] + i * tsizy;
+
+		// old
+		//i = lwall[x2] + globalxpanning;
+		//if (i >= tilesizx[globalpicnum]) i %= tilesizx[globalpicnum];
+		//bufplce[1] = waloff[globalpicnum]+i*tilesizy[globalpicnum];
+	i = (lwall[x2] + globalxpanning) >> sh;
+	if (i >= tsizx) i %= tsizx;
+	bufplce[1] = waloff[globalpicnum] + i * tsizy;
+	// ---=== lowram - FINISH
 
 	y1 = max(y1ve[0],y1ve[1]);
 	y2 = min(y2ve[0],y2ve[1]);
@@ -3528,11 +3717,20 @@ transmaskvline2_LQ2X (long x)
 transmaskwallscan(long x1, long x2)
 {
 	long x, startx;
+	unsigned char sh;
 
 	setgotpic(globalpicnum);
 	if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0)) return;
 
 	if (waloff[globalpicnum] == 0) loadtile(globalpicnum);
+
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
 	setuptvlineasm(globalshiftval);
 
@@ -3546,67 +3744,39 @@ transmaskwallscan(long x1, long x2)
 
 transmaskwallscan_LQ2X(long x1, long x2)
 {
-    long x, startx;
-    long xstep, x_effective, x_base, j, current_x, x_index;
+	long x, xstep;
+	unsigned char sh;
 
-    setgotpic(globalpicnum);
-    if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0))
-    {
-        return;
-    }
+	setgotpic(globalpicnum);
+	if ((tilesizx[globalpicnum] <= 0) || (tilesizy[globalpicnum] <= 0))
+		return;
 
-    if (waloff[globalpicnum] == 0)
-    {
-        loadtile(globalpicnum);
-    }
+	if (waloff[globalpicnum] == 0)
+		loadtile(globalpicnum);
 
-    setuptvlineasm(globalshiftval);
+	// ---=== lowram - START
+	sh = tile_shift[globalpicnum];
+	if (sh > 0)
+	{
+		globalshiftval += sh;
+	}
+	// ---=== lowram - FINISH
 
-    xstep = pxlzefctr;
+	setuptvlineasm(globalshiftval);
 
-    x = x1;
-    while ((startumost[x + windowx1] > startdmost[x + windowx1]) && (x <= x2))
-    {
-        x++;
-    }
+	xstep = pxlzefctr;
+	if (xstep < 1) xstep = 1;
 
-    // Apply low-detail interleaving AND transparency handling
-    for (x = x1; x <= x2; )
-    {
-        if ((x - x1) % xstep != 0)
-        {
-            x++; // Skip this pixel
-            continue;
-        }
+	for (x = x1; x <= x2; x += xstep)
+	{
+		if (startumost[x + windowx1] <= startdmost[x + windowx1])
+		{
+			transmaskvline_LQ2X(x);
+		}
+	}
 
-        if (x <= x2 && (x & 1))
-        {
-            transmaskvline_LQ2X(x);
-            x++;
-        }
-        else if (x < x2)
-        {
-            transmaskvline2_LQ2X(x);
-            x += 2;
-            if ((x - x1) % xstep != 0)
-            {
-                x-=1; //only advance by 1 when stepping over the end of a xstep block
-            }
-        }
-        else if (x <= x2)
-        {
-            transmaskvline_LQ2X(x);
-            x++;
-        }
-
-    }
-
-    faketimerhandler();
+	faketimerhandler();
 }
-
-
-
-
 
 loadboard(char *filename, long *daposx, long *daposy, long *daposz,
 			 short *daang, short *dacursectnum)
@@ -4137,18 +4307,24 @@ char cachedebug = 0;
 loadtile(short tilenume)
 {
 	// ALL declarations at the top for Watcom C11.0 (1997) compliance
-	long i, dasiz, x, y, sx, sy;
+	long i, dasiz, comp_siz, x, y, sx, sy, skip_cols;
 	long xscale, yscale;
-	char *ptr, *tempbuf;
-	char templock, oldlock;
+	long orig_x, orig_y, new_x, new_y, step;
+	long dst_col_off;
+	unsigned char sh;
+	char *ptr, *tempbuf, *dot;
+	char oldlock, col_buf[2048];
+	static char templock;
 
 	if ((unsigned)tilenume >= (unsigned)MAXTILES) return;
 
-	// dasiz is already large (e.g. 384*384) because tilesizx was patched in loadpics
 	dasiz = (long)tilesizx[tilenume] * (long)tilesizy[tilenume];
 	if (dasiz <= 0) return;
 
-	// Handle ART file switching
+	sh = tile_shift[tilenume];
+	comp_siz = ((long)tilesizx[tilenume] >> sh) * ((long)tilesizy[tilenume] >> sh);
+
+	// Handle ART / ARD file switching
 	i = (long)tilefilenum[tilenume];
 	if (i != artfilnum)
 	{
@@ -4157,21 +4333,35 @@ loadtile(short tilenume)
 		artfilename[7] = (short)(i % 10) + 48;
 		artfilename[6] = (short)((i / 10) % 10) + 48;
 		artfilename[5] = (short)((i / 100) % 10) + 48;
+
+		dot = strrchr(artfilename, '.');
+		if (dot != NULL)
+		{
+			if (lowram > 0 && !lowramnocache && ard_active[i])
+			{
+				dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+			}
+			else
+			{
+				dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'T'; dot[4] = 0;
+			}
+		}
+
 		artfil = kopen4load(artfilename, 0);
 		faketimerhandler();
 	}
 
-	// Allocate cache memory for the tile
+	// Allocate cache memory for the tile (exact compressed size when tile_shift > 0)
 	if (waloff[tilenume] == 0)
 	{
 		walock[tilenume] = 199;
-		allocache(&waloff[tilenume], dasiz, &walock[tilenume]);
+		allocache(&waloff[tilenume], comp_siz, &walock[tilenume]);
 	}
 
-	// Align file pointer to the tile's data offset
+	// Align file pointer to the tile's exact data offset using SEEK_SET
 	if (artfilplc != tilefileoffs[tilenume])
 	{
-		klseek(artfil, tilefileoffs[tilenume] - artfilplc, SEEK_CUR);
+		klseek(artfil, tilefileoffs[tilenume], SEEK_SET);
 		faketimerhandler();
 	}
 
@@ -4183,23 +4373,17 @@ loadtile(short tilenume)
 		oldlock = walock[tilenume];
 		if (walock[tilenume] < 200) walock[tilenume] = 200;
 
-		// DUKE07 ADAPTIVE UPSCALER:
-		// Use allocache for a temporary buffer instead of malloc
-		templock = 200; // Lock buffer to prevent cache eviction during upscale
+		templock = 200;
 		allocache((long *)&tempbuf, 192 * 192, &templock);
 		ptr = (char *)waloff[tilenume];
 
 		if (tempbuf != NULL && ptr != NULL)
 		{
-			// 1. Read the original 192x192 data from ART file
 			kread(artfil, tempbuf, 192 * 192);
 
-			// 2. Fixed-point scaling ratios (16.16)
-			// Logic: How to map a pixel from high-res back to 192px source
 			xscale = divscale16(192, (long)tilesizx[tilenume]);
 			yscale = divscale16(192, (long)tilesizy[tilenume]);
 
-			// 3. Nearest Neighbor software upscaling loop
 			for (y = 0; y < (long)tilesizy[tilenume]; y++)
 			{
 				sy = mulscale16(y, yscale);
@@ -4211,24 +4395,190 @@ loadtile(short tilenume)
 			}
 		}
 
-		// Release the temp buffer and restore original tile lock
 		templock = 1;
 		walock[tilenume] = oldlock;
 	}
+	else if (sh > 0)
+	{
+		if (lowram > 0 && !lowramnocache && ard_active[artfilnum])
+		{
+			// Fast single linear read from pre-scaled TILESxxx.ARD disk cache
+			kread(artfil, ptr, comp_siz);
+		}
+		else
+		{
+			// On-the-fly column decimation from TILESxxx.ART (lowramnocache fallback)
+			orig_x = (long)tilesizx[tilenume];
+			orig_y = (long)tilesizy[tilenume];
+			new_x  = orig_x >> sh;
+			new_y  = orig_y >> sh;
+			step   = 1L << sh;
+
+			if (ptr != NULL && orig_y <= 2048)
+			{
+				for (x = 0; x < new_x; x++)
+				{
+					kread(artfil, col_buf, orig_y);
+
+					dst_col_off = x * new_y;
+					for (y = 0; y < new_y; y++)
+					{
+						ptr[dst_col_off + y] = col_buf[y << sh];
+					}
+
+					if ((x + 1) < new_x)
+					{
+						for (skip_cols = 1; skip_cols < step; skip_cols++)
+						{
+							kread(artfil, col_buf, orig_y);
+						}
+					}
+				}
+			}
+		}
+	}
 	else
 	{
-		// Standard tile loading for non-portal textures
+		// Standard tile loading
 		kread(artfil, ptr, dasiz);
 	}
 
 	faketimerhandler();
 
-	// Correctly update file position tracker
-	// Portals only occupy 192x192 in the physical .ART file!
 	if (tilenume >= PORTAL0 && tilenume <= PORTAL31)
 		artfilplc = tilefileoffs[tilenume] + (192 * 192);
+	else if (sh > 0)
+	{
+		if (lowram > 0 && !lowramnocache && ard_active[artfilnum])
+			artfilplc = tilefileoffs[tilenume] + comp_siz;
+		else
+			artfilplc = -1L;
+	}
 	else
 		artfilplc = tilefileoffs[tilenume] + dasiz;
+}
+
+// Low-RAM downscaled texture dump to reduce micro-stutters on weak systems if disk is available
+static int build_ard_file(short src_art_fil, long localtilestart, long localtileend)
+{
+	long i, orig_x, orig_y, new_x, new_y, step;
+	long x, y, skip_cols, dasiz, rem, to_read;
+	char ardname[16];
+	char hdr[8];
+	char col_buf[2048];
+	char chunk[4096];
+	char *dot;
+	unsigned char sh;
+	FILE *fp;
+
+	strcpy(ardname, artfilename);
+	dot = strrchr(ardname, '.');
+	if (dot != NULL)
+	{
+		dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+	}
+	else
+	{
+		strcat(ardname, ".ARD");
+	}
+
+	fp = fopen(ardname, "wb");
+	if (fp == NULL)
+	{
+		lowramnocache = 1;
+		return 0;
+	}
+
+	printf("Building %s (LowRAM level %d)...\n", ardname, (int)lowram);
+
+	// 8-byte header: "ARD\x1A" + level + 3 reserved bytes
+	hdr[0] = 'A'; hdr[1] = 'R'; hdr[2] = 'D'; hdr[3] = 0x1A;
+	hdr[4] = (char)lowram;
+	hdr[5] = 0; hdr[6] = 0; hdr[7] = 0;
+	if (fwrite(hdr, 1, 8, fp) != 8)
+	{
+		fclose(fp);
+		remove(ardname);
+		lowramnocache = 1;
+		return 0;
+	}
+
+	for (i = localtilestart; i <= localtileend; i++)
+	{
+		dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+		if (dasiz <= 0) continue;
+
+		klseek(src_art_fil, tilefileoffs[i], SEEK_SET);
+
+		if (i >= PORTAL0 && i <= PORTAL31)
+		{
+			// Portals in lowram stay 192x192: copy in 4KB chunks without heap allocation
+			rem = 192L * 192L;
+			while (rem > 0)
+			{
+				to_read = (rem > 4096L) ? 4096L : rem;
+				kread(src_art_fil, chunk, to_read);
+				fwrite(chunk, 1, to_read, fp);
+				rem -= to_read;
+			}
+			continue;
+		}
+
+		sh = tile_shift[i];
+
+		if (sh == 0)
+		{
+			// Copy uncompressed tile in 4KB chunks (never fails on low RAM)
+			rem = dasiz;
+			while (rem > 0)
+			{
+				to_read = (rem > 4096L) ? 4096L : rem;
+				kread(src_art_fil, chunk, to_read);
+				fwrite(chunk, 1, to_read, fp);
+				rem -= to_read;
+			}
+		}
+		else
+		{
+			orig_x = (long)tilesizx[i];
+			orig_y = (long)tilesizy[i];
+			new_x  = orig_x >> sh;
+			new_y  = orig_y >> sh;
+			step   = 1L << sh;
+
+			if (orig_y <= 2048)
+			{
+				for (x = 0; x < new_x; x++)
+				{
+					kread(src_art_fil, col_buf, orig_y);
+					for (y = 0; y < new_y; y++)
+					{
+						fputc(col_buf[y << sh], fp);
+					}
+					if ((x + 1) < new_x)
+					{
+						for (skip_cols = 1; skip_cols < step; skip_cols++)
+						{
+							kread(src_art_fil, col_buf, orig_y);
+						}
+					}
+				}
+			}
+		}
+		faketimerhandler();
+	}
+
+	fflush(fp);
+	if (ferror(fp))
+	{
+		fclose(fp);
+		remove(ardname);
+		lowramnocache = 1;
+		return 0;
+	}
+
+	fclose(fp);
+	return 1;
 }
 
 allocatepermanenttile(short tilenume, long xsiz, long ysiz)
@@ -4259,9 +4609,13 @@ allocatepermanenttile(short tilenume, long xsiz, long ysiz)
 long portalnewdimratio = 65536;
 loadpics(char *filename)
 {
-	long offscount, siz, localtilestart, localtileend, dasiz;
-	long k, i, j, target_portal_size;
-	short fil;
+	long offscount, siz, localtilestart, localtileend, dasiz, ard_offs;
+	long k, i, j, target_portal_size, area, comp_siz;
+	short fil, ardfil;
+	char ardname[256];
+	char hdr[8];
+	char *dot;
+	unsigned char sh;
 
 	strcpy(artfilename, filename);
 
@@ -4270,7 +4624,12 @@ loadpics(char *filename)
 	{
 		tilesizx[i] = 0;
 		tilesizy[i] = 0;
+		tile_shift[i] = 0;
 		picanm[i] = 0L;
+	}
+	for (i = 0; i < 256; i++)
+	{
+		ard_active[i] = 0;
 	}
 
 	artsize = 0L;
@@ -4278,9 +4637,10 @@ loadpics(char *filename)
 
 	// Determine high-res portal target based on screen resolution
 	// Use ScreenWidth from config, because xdim is still 320 at this point!
-	if (ScreenWidth >= 800) target_portal_size = 512;
+	if      (lowram)             target_portal_size = 192;
+	else if (ScreenWidth >= 800) target_portal_size = 512;
 	else if (ScreenWidth >= 640) target_portal_size = 384;
-	else target_portal_size = 192;
+	else                         target_portal_size = 192;
 
 	// Calc the global coeff: for how many times is new tile is LARGER
 	// 192 -> 384 gives ratio 2.0
@@ -4292,6 +4652,11 @@ loadpics(char *filename)
 		artfilename[7] = (k % 10) + 48;
 		artfilename[6] = ((k / 10) % 10) + 48;
 		artfilename[5] = ((k / 100) % 10) + 48;
+		dot = strrchr(artfilename, '.');
+		if (dot != NULL)
+		{
+			dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'T'; dot[4] = 0;
+		}
 
 		if ((fil = kopen4load(artfilename, 0)) != -1)
 		{
@@ -4306,8 +4671,50 @@ loadpics(char *filename)
 			kread(fil, &tilesizy[localtilestart], (localtileend - localtilestart + 1) << 1);
 			kread(fil, &picanm[localtilestart], (localtileend - localtilestart + 1) << 2);
 
+			// Probe TILESxxx.ARD before calculating tile_shift[] so auto-detected lowram adopts existing ARD level
+			ard_active[k] = 0;
+			if (lowram > 0 && !lowramnocache)
+			{
+				strcpy(ardname, artfilename);
+				dot = strrchr(ardname, '.');
+				if (dot != NULL)
+				{
+					dot[1] = 'A'; dot[2] = 'R'; dot[3] = 'D'; dot[4] = 0;
+				}
+
+				ardfil = kopen4load(ardname, 0);
+				if (ardfil != -1)
+				{
+					memset(hdr, 0, sizeof(hdr));
+					kread(ardfil, hdr, 8);
+					kclose(ardfil);
+
+					if (hdr[0] == 'A' && hdr[1] == 'R' && hdr[2] == 'D' && hdr[3] == 0x1A &&
+					    hdr[4] >= 1 && hdr[4] <= 3)
+					{
+						if (!lowramforced)
+						{
+							lowram = hdr[4];
+							printf("Found ARD cache %s (level %d): adopting detail level %d.\n",
+								ardname, (int)lowram, (int)lowram);
+							ard_active[k] = 1;
+						}
+						else if (hdr[4] == lowram)
+						{
+							printf("Found matching ARD cache %s (level %d).\n", ardname, (int)lowram);
+							ard_active[k] = 1;
+						}
+						else
+						{
+							printf("ARD cache %s is level %d (requested %d): rebuilding...\n",
+								ardname, (int)hdr[4], (int)lowram);
+						}
+					}
+				}
+			}
+
 			// DUKE07 ADAPTIVE OVERRIDE:
-			// We trick the engine into thinking portals are larger BEFORE cache init.
+			// Upscale portals on high-res; in lowram downscale tiles according to level (1..3)
 			for (i = localtilestart; i <= localtileend; i++)
 			{
 				if (i >= PORTAL0 && i <= PORTAL31)
@@ -4315,30 +4722,99 @@ loadpics(char *filename)
 					tilesizx[i] = (short)target_portal_size;
 					tilesizy[i] = (short)target_portal_size;
 				}
+				else if (lowram > 0)
+				{
+					area = (long)tilesizx[i] * (long)tilesizy[i];
+
+					if (lowram == 1)
+					{
+						// Level 1: >= 192px (and >= 32 KB to keep HUD bars sharp)
+						if ((tilesizx[i] >= 192 || tilesizy[i] >= 192) && area >= 32768L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 400 || tilesizy[i] >= 400) ? 2 : 1;
+						}
+					}
+					else if (lowram == 2)
+					{
+						// Level 2: >= 96px (and >= 4 KB to preserve small UI/fonts)
+						if ((tilesizx[i] >= 96 || tilesizy[i] >= 96) && area >= 4096L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 192 || tilesizy[i] >= 192) ? 2 : 1;
+						}
+					}
+					else if (lowram >= 3)
+					{
+						// Level 3: >= 48px (and >= 1 KB to preserve tiny crosshair/font glyphs)
+						if ((tilesizx[i] >= 48 || tilesizy[i] >= 48) && area >= 1024L)
+						{
+							tile_shift[i] = (tilesizx[i] >= 192 || tilesizy[i] >= 192) ? 2 : 1;
+						}
+					}
+				}
 			}
 
+			// First compute offsets in original .ART file (needed if build_ard_file() runs)
 			offscount = 4 + 4 + 4 + 4 + ((localtileend - localtilestart + 1) << 3);
 			for (i = localtilestart; i <= localtileend; i++)
 			{
 				tilefilenum[i] = (short)k;
 				tilefileoffs[i] = offscount;
-				dasiz = (long)(tilesizx[i] * tilesizy[i]);
 
-				// Track total memory needed for the linear cache
-				artsize += ((dasiz + 15) & 0xfffffff0);
+				// Cast to long BEFORE multiplying to prevent 16-bit short overflow!
+				dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+				sh = tile_shift[i];
+				comp_siz = ((long)tilesizx[i] >> sh) * ((long)tilesizy[i] >> sh);
+				// Track compressed memory needed for the linear cache
+				artsize += ((comp_siz + 15) & 0xfffffff0);
 
-				// Calculate offset for the next tile based on REAL file data size (192x192 base)
-				if (i >= PORTAL0 && i <= PORTAL31)
-					offscount += (192 * 192);
-				else
-					offscount += dasiz;
+				// Calculate offset for the next tile based on REAL file data size
+				if (i >= PORTAL0 && i <= PORTAL31) offscount += (192 * 192);
+				else                               offscount += dasiz;
 			}
+
+			// Build missing/outdated TILESxxx.ARD and remap tilefileoffs[] to .ARD
+			if (lowram > 0 && !lowramnocache)
+			{
+				if (!ard_active[k])
+				{
+					if (build_ard_file(fil, localtilestart, localtileend))
+					{
+						ard_active[k] = 1;
+					}
+					else
+					{
+						printf("Cannot write ARD cache (read-only media?): enabling lowramnocache.\n");
+					}
+				}
+
+				if (ard_active[k])
+				{
+					ard_offs = 8L; // Skip 8-byte ARD header
+					for (i = localtilestart; i <= localtileend; i++)
+					{
+						tilefileoffs[i] = ard_offs;
+						dasiz = (long)tilesizx[i] * (long)tilesizy[i];
+						if (dasiz <= 0) continue;
+
+						if (i >= PORTAL0 && i <= PORTAL31)
+						{
+						    ard_offs += (192 * 192);
+						}
+						else
+						{
+						    sh = tile_shift[i];
+						    ard_offs += ((long)tilesizx[i] >> sh) * ((long)tilesizy[i] >> sh);
+						}
+					}
+				}
+			}
+
 			kclose(fil);
 			numtilefiles++;
 		}
 	} while (k != (long)numtilefiles);
 
-	clearbuf((long)(&gotpic[0]), (long)((MAXTILES + 31) >> 5), 0L);
+	clearbuf((long)(&gotpic), (long)((MAXTILES + 31) >> 5), 0L);
 
 	// Initialize the linear cache with the calculated total size
 	cachesize = max(artsize, 1048576);
@@ -4349,7 +4825,7 @@ loadpics(char *filename)
 	}
 	initcache((FP_OFF(pic) + 15) & 0xfffffff0, (cachesize - ((-FP_OFF(pic)) & 15)) & 0xfffffff0);
 
-	// Build the power-of-two picsiz table for the renderer
+	// Build the power-of-two picsiz table for the renderer (always original dimensions!)
 	for (i = 0; i < MAXTILES; i++)
 	{
 		j = 15; while ((j > 1) && (pow2long[j] > tilesizx[i])) j--;
@@ -4913,16 +5389,16 @@ drawmaskwall(short damaskwallcnt)
 		}
 
 	if ((globalorientation&128) == 0)
-		
+	{
 		if ( (use_lqmode) == 1 )
 		{
-		maskwallscan_LQ2X(xb1[z],xb2[z],uwall,dwall,swall,lwall);
+			maskwallscan_LQ2X(xb1[z],xb2[z],uwall,dwall,swall,lwall);
 		}
 		else if ( (use_lqmode) == 0 )
 		{
-		maskwallscan(xb1[z],xb2[z],uwall,dwall,swall,lwall);
+			maskwallscan(xb1[z],xb2[z],uwall,dwall,swall,lwall);
 		}
-
+	}
 	else
 	{
 		if (globalorientation&128)
@@ -4931,13 +5407,12 @@ drawmaskwall(short damaskwallcnt)
 		}
 		if ( (use_lqmode) == 1 )
 		{
-		transmaskwallscan_LQ2X(xb1[z],xb2[z]);
+			transmaskwallscan_LQ2X(xb1[z],xb2[z]);
 		}
 		else if ( (use_lqmode) == 0 )
 		{
-		transmaskwallscan(xb1[z],xb2[z]);
+			transmaskwallscan(xb1[z],xb2[z]);
 		}
-
 	}
 }
 
@@ -4978,9 +5453,10 @@ drawsprite_HQ (long snum)
 	long xs, ys, xpos, ypos, xv, yv, top, topinc, bot, botinc, hplc, hinc;
 	long cosang, sinang, dax, day, lpoint, lmax, rpoint, rmax, dax1, dax2, y;
 	long npoints, npoints2, zz, t, zsgn, zzsgn, *longptr;
-	signed short shade;
 	short tilenum, spritenum;
+	signed short shade;
 	char swapped, daclip;
+	unsigned char sh;
 
 	// portal variables start
 	short sprite_ang;
@@ -5271,7 +5747,7 @@ drawsprite_HQ (long snum)
 		if (lwall[xb1[MAXWALLSB-1]] < 0) lwall[xb1[MAXWALLSB-1]] = 0;
 		if (lwall[xb2[MAXWALLSB-1]] >= xspan) lwall[xb2[MAXWALLSB-1]] = xspan-1;
 
-		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		// ======= parallax texturing on wall aligned sprites for portals - START =====================
 		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
 		{
                     // use mulscale16, to evade IDIV crash
@@ -5290,7 +5766,7 @@ drawsprite_HQ (long snum)
                         swall[x] = mulscale19(i, xdimscale);
                     }
 		}
-		// ======= parallax texturing on wall aligned sprites for portals finish =====================
+		// ======= parallax texturing on wall aligned sprites for portals - FINISH =====================
 
 		if ((swapped^((cstat&4)>0)) > 0)
 		{
@@ -5433,7 +5909,7 @@ drawsprite_HQ (long snum)
 			}
 		}
 
-		// ======= parallax texturing on wall aligned sprites for portals start =====================
+		// ======= parallax texturing on wall aligned sprites for portals - START =====================
 		if (tilenum >= PORTAL0 && tilenum <= PORTAL31)
 		{
 		    xspan = tilesizx[tilenum]; yspan = tilesizy[tilenum];
@@ -5445,7 +5921,7 @@ drawsprite_HQ (long snum)
 		    sprite_ang = tspr->ang;
 
 
-		    // --- motion animated portal tiles that must be projected still start ----
+		    // --- motion animated portal tiles that must be projected still start2 ----
 		    // --- Horizontal Projection (U) ---
 		    for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
 		    {
@@ -5475,9 +5951,9 @@ drawsprite_HQ (long snum)
 		    globalzd = ((yspan >> 1) << globalshiftval);
 		    // Apply tilt/y-offset compensation
 		    globalzd += ((100 - tspr->yoffset) * globalyscale << 3);
-		    // --- motion animated portal tiles that must be projected still finish ----
+		    // --- motion animated portal tiles that must be projected still finish2 ----
 
-		    // ---- for static tiles where tile contents don't matter start ----	    
+		    // ---- for static tiles where tile contents don't matter start3 ----	    
 		    //	// --- horizontal with parallax scrolling (U) ---
 		    //for (x = xb1[MAXWALLSB-1]; x <= xb2[MAXWALLSB-1]; x++)
 		    //{
@@ -5501,12 +5977,12 @@ drawsprite_HQ (long snum)
 		    //globalzd = ((yspan >> 1) << globalshiftval); 
 		    //	// Vertically locked to player's global horizon for a stable parallax effect
 		    //globalzd += (globalhoriz * globalyscale << 3);
-		    // ---- for static tiles where tile contents don't matter finish ----
+		    // ---- for static tiles where tile contents don't matter finish3 ----
 	
 		    globalpicnum = tilenum; globalshade = tspr->shade;
 		    globalpal = tspr->pal; globvis = 0;
 		}
-		// ======= parallax texturing on wall aligned sprites for portals finish =====================
+		// ======= parallax texturing on wall aligned sprites for portals - FINISH =====================
 
 			//sprite
 		if ((searchit >= 1) && (searchx >= xb1[MAXWALLSB-1]) && (searchx <= xb2[MAXWALLSB-1]))
@@ -5825,13 +6301,23 @@ drawsprite_HQ (long snum)
 		globalx1 = (globalx1-globalx2)*halfxdimen;
 		globaly1 = (globaly1-globaly2)*halfxdimen;
 
+		// ---=== lowram - START
+			// old
+			//if ((cstat&2) == 0)
+			//	msethlineshift(x,y);
+			//else
+			//	tsethlineshift(x,y);
+			//
+		sh = tile_shift[globalpicnum];
 		if ((cstat&2) == 0)
-			msethlineshift(x,y);
+			msethlineshift(x - sh, y - sh);
 		else
-			tsethlineshift(x,y);
+			tsethlineshift(x - sh, y - sh);
+		// ---=== lowram - FINISH
 
-			//Draw it!
-		ceilspritescan(lx,rx-1);
+				//Draw it!
+			ceilspritescan(lx,rx-1);
+
 	}
 #ifdef SUPERBUILD
 	else if ((cstat&48) == 48)
@@ -5964,6 +6450,7 @@ drawsprite_LQ2X (long snum)
 	signed short shade;
 	short tilenum, spritenum;
 	char swapped, daclip;
+	unsigned char sh;
 
 	long detail_counter; // Counter for skipping fields
 
@@ -6749,25 +7236,16 @@ drawsprite_LQ2X (long snum)
 			}
 		}
 
-
 		lx = ((lmax+65535)>>16);
 		rx = ((rmax+65535)>>16);
-
-		// Low detail mode - skip some calculations - improved
-		detail_counter = 0;
+	
 		for(x=lx;x<=rx;x++)
 		{
-			if (detail_counter % pxlzefctr == 0) {
-				uwall[x] = max(uwall[x],startumost[x+windowx1]-windowy1);
-				dwall[x] = min(dwall[x],startdmost[x+windowx1]-windowy1);
-			} else {
-				uwall[x] = (x > lx) ? uwall[x-1] : max(uwall[x],startumost[x+windowx1]-windowy1);
-				dwall[x] = (x > lx) ? dwall[x-1] : min(dwall[x],startdmost[x+windowx1]-windowy1);
-			}
-			detail_counter++;
+			uwall[x] = max(uwall[x],startumost[x+windowx1]-windowy1);
+			dwall[x] = min(dwall[x],startdmost[x+windowx1]-windowy1);
 		}
-
-			//Additional uwall/dwall clipping goes here
+	
+		//Additional uwall/dwall clipping goes here
 		for(i=smostwallcnt-1;i>=0;i--)
 		{
 			j = smostwall[i];
@@ -6844,13 +7322,22 @@ drawsprite_LQ2X (long snum)
 		globalx1 = (globalx1-globalx2)*halfxdimen;
 		globaly1 = (globaly1-globaly2)*halfxdimen;
 
+		// ---=== lowram - START
+			// old
+			//if ((cstat&2) == 0)
+			//	msethlineshift(x,y);
+			//else
+			//	tsethlineshift(x,y);
+			//
+		sh = tile_shift[globalpicnum];
 		if ((cstat&2) == 0)
-			msethlineshift(x,y);
+			msethlineshift(x - sh, y - sh);
 		else
-			tsethlineshift(x,y);
+			tsethlineshift(x - sh, y - sh);
+		// ---=== lowram - FINISH
 
-			//Draw it!
-		ceilspritescan_LQ2X(lx,rx-1);
+				//Draw it!
+			ceilspritescan_LQ2X(lx,rx-1);
 	}
 #ifdef SUPERBUILD
 	else if ((cstat&48) == 48)
@@ -9712,7 +10199,9 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	long i, x, y, x1, y1, x2, y2, gx1, gy1, p, bufplc, palookupoffs;
 	long xsiz, ysiz, xoff, yoff, npoints, yplc, yinc, lx, rx, xx, xend;
 	long xv, yv, xv2, yv2, obuffermode, qlinemode, y1ve[4], y2ve[4], u4, d4;
+	long buf_ysiz;
 	char bad;
+	unsigned char sh;
 
 	xsiz = tilesizx[picnum]; ysiz = tilesizy[picnum];
 	if (dastat&16) { xoff = 0; yoff = 0; }
@@ -9807,6 +10296,11 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	setgotpic(picnum);
 	bufplc = waloff[picnum];
 
+	// ---=== lowram - START
+	sh = tile_shift[picnum];
+	buf_ysiz = ysiz >> sh;
+	// ---=== lowram - FINISH
+
 	palookupoffs = FP_OFF(palookup[dapalnum]) + (getpalookup(0L,(long)dashade)<<8);
 
 	i = divscale32(1L,z);
@@ -9845,9 +10339,11 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 
 	if ((dastat&1) == 0)
 	{
-		if (((a&1023) == 0) && (ysiz <= 256))  //vlineasm4 has 256 high limit!
+		// Note: check buf_ysiz <= 256 so compressed 512x512 tiles also use fast vlineasm4!
+		if (((a&1023) == 0) && (buf_ysiz <= 256))
 		{
-			if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L);
+			//if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L); // old
+			if (dastat&64) setupvlineasm(24L + sh); else setupmvlineasm(24L + sh); // considers lowram
 			by <<= 8; yv <<= 8; yv2 <<= 8;
 
 			palookupoffse[0] = palookupoffse[1] = palookupoffse[2] = palookupoffse[3] = palookupoffs;
@@ -9870,7 +10366,8 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 
 					by += yv*(y1-oy); oy = y1;
 
-					bufplce[xx] = (bx>>16)*ysiz+bufplc;
+					//bufplce[xx] = (bx>>16)*ysiz+bufplc; // old
+					bufplce[xx] = (bx>>(16 + sh))*buf_ysiz+bufplc; // considers lowram
 					vplce[xx] = by;
 					y1ve[xx] = y1;
 					y2ve[xx] = y2-1;
@@ -9936,6 +10433,16 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 		}
 		else
 		{
+			// ---=== lowram - START
+			if (sh > 0)
+			{
+				bx >>= sh; by >>= sh;
+				xv >>= sh; yv >>= sh;
+				xv2 >>= sh; yv2 >>= sh;
+				ysiz = buf_ysiz;
+			}
+			// ---=== lowram - FINISH
+
 			if (dastat&64)
 			{
 				if ((xv2&0x0000ffff) == 0)
@@ -10039,6 +10546,16 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 	}
 	else
 	{
+		// ---=== lowram - START
+		if (sh > 0)
+		{
+			bx >>= sh; by >>= sh;
+			xv >>= sh; yv >>= sh;
+			xv2 >>= sh; yv2 >>= sh;
+			ysiz = buf_ysiz;
+		}
+		// ---=== lowram - FINISH
+
 		if ((dastat&1) == 0)
 		{
 			if (dastat&64)
@@ -10097,6 +10614,7 @@ dorotatesprite (long sx, long sy, long z, short a, short picnum, signed char das
 }
 
 
+
 dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char dashade, char dapalnum, char dastat, long cx1, long cy1, long cx2, long cy2)
 {
 	// Variables declared at the top
@@ -10104,7 +10622,9 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 	long i, x, y, x1, y1, x2, y2, gx1, gy1, p, bufplc, palookupoffs;
 	long xsiz, ysiz, xoff, yoff, npoints, yplc, yinc, lx, rx, xx, xend;
 	long xv, yv, xv2, yv2, obuffermode, qlinemode, y1ve[4], y2ve[4], u4, d4;
+        long buf_ysiz;
 	char bad;
+	unsigned char sh;
 
 	// Variables for low detail mode
 	long detail_counter; // Counter for skipping fields
@@ -10230,6 +10750,11 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 	setgotpic(picnum);
 	bufplc = waloff[picnum];
 
+	// ---=== lowram - START
+	sh = tile_shift[picnum];
+	buf_ysiz = ysiz >> sh;
+	// ---=== lowram - FINISH
+
 	palookupoffs = FP_OFF(palookup[dapalnum]) + (getpalookup(0L,(long)dashade)<<8);
 
 	i = divscale32(1L,z);
@@ -10272,7 +10797,8 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 	{
 		if (((a&1023) == 0) && (ysiz <= 256))  //vlineasm4 has 256 high limit!
 		{
-			if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L);
+			//if (dastat&64) setupvlineasm(24L); else setupmvlineasm(24L); // old
+			if (dastat&64) setupvlineasm(24L + sh); else setupmvlineasm(24L + sh); // considers lowram
 			by <<= 8; yv <<= 8; yv2 <<= 8;
 
 			palookupoffse[0] = palookupoffse[1] = palookupoffse[2] = palookupoffse[3] = palookupoffs;
@@ -10295,7 +10821,8 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 
 					by += yv*(y1-oy); oy = y1;
 
-					bufplce[xx] = (bx>>16)*ysiz+bufplc;
+					//bufplce[xx] = (bx>>16)*ysiz+bufplc; // old
+					bufplce[xx] = (bx>>(16 + sh))*buf_ysiz+bufplc; // considers lowram
 					vplce[xx] = by;
 					y1ve[xx] = y1;
 					y2ve[xx] = y2-1;
@@ -10361,6 +10888,16 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 		}
 		else
 		{
+			// ---=== lowram - START
+			if (sh > 0)
+			{
+				bx >>= sh; by >>= sh;
+				xv >>= sh; yv >>= sh;
+				xv2 >>= sh; yv2 >>= sh;
+				ysiz = buf_ysiz;
+			}
+			// ---=== lowram - FINISH
+
 			if (dastat&64)
 			{
 				if ((xv2&0x0000ffff) == 0)
@@ -10464,6 +11001,16 @@ dorotatespritelq (long sx, long sy, long z, short a, short picnum, signed char d
 	}
 	else
 	{
+		// ---=== lowram - START
+		if (sh > 0)
+		{
+			bx >>= sh; by >>= sh;
+			xv >>= sh; yv >>= sh;
+			xv2 >>= sh; yv2 >>= sh;
+			ysiz = buf_ysiz;
+		}
+		// ---=== lowram - FINISH
+
 		if ((dastat&1) == 0)
 		{
 			if (dastat&64)
@@ -10762,6 +11309,7 @@ drawmapview (long dax, long day, long zoome, short ang)
 	long s, w, ox, oy, startwall, cx1, cy1, cx2, cy2;
 	long bakgxvect, bakgyvect, sortnum, gap, npoints;
 	long xvect, yvect, xvect2, yvect2, daslope;
+	unsigned char sh;
 
 	beforedrawrooms = 0;
 	totalarea += (windowx2+1-windowx1)*(windowy2+1-windowy1);
@@ -10861,7 +11409,11 @@ drawmapview (long dax, long day, long zoome, short ang)
 			globalyshift = (8-(picsiz[globalpicnum]>>4));
 			if (globalorientation&8) {globalxshift++; globalyshift++; }
 
-			sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc);
+			// ---=== lowram - START		
+				//sethlinesizes(picsiz[globalpicnum]&15,picsiz[globalpicnum]>>4,globalbufplc); // old
+			sh = tile_shift[globalpicnum];
+			sethlinesizes((picsiz[globalpicnum]&15) - sh, (picsiz[globalpicnum]>>4) - sh, globalbufplc);
+			// ---=== lowram - FINISH
 
 			if ((globalorientation&0x4) > 0)
 			{
@@ -10994,10 +11546,18 @@ drawmapview (long dax, long day, long zoome, short ang)
 			globalposx = dmulscale28(-baky1,globalx1,-bakx1,globaly1);
 			globalposy = dmulscale28(bakx1,globalx2,-baky1,globaly2);
 
+			// ---=== lowram - START
+				//old
+				//if ((spr->cstat&2) == 0)
+				//	msethlineshift(ox,oy);
+				//else
+				//	tsethlineshift(ox,oy);
+			sh = tile_shift[globalpicnum];
 			if ((spr->cstat&2) == 0)
-				msethlineshift(ox,oy);
+				msethlineshift(ox - sh, oy - sh);
 			else
-				tsethlineshift(ox,oy);
+				tsethlineshift(ox - sh, oy - sh);
+			// ---=== lowram - FINISH
 
 			if ((spr->cstat&0x4) > 0) globalx1 = -globalx1, globaly1 = -globaly1, globalposx = -globalposx;
 			asm1 = (globaly1<<2); globalx1 <<= 2; globalposx <<= (20+2);
@@ -11863,8 +12423,9 @@ grouscan (long dax1, long dax2, long sectnum, char dastat)
 grouscanfpu_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
-	long daslope, dasqr;
+        long daslope, dasqr, xb, yb;
 	long dashade, shoffs, shinc, m1, m2, *mptr1, *mptr2, *nptr1, *nptr2;
+        unsigned char sh;
 	walltype *wal;
 	sectortype *sec;
 
@@ -11972,7 +12533,13 @@ grouscanfpu_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 	globvis = mulscale16(globvis,xdimscale);
 	j = FP_OFF(palookup[globalpal]);
 
-	setupslopevlinLQX(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]);
+	// ---=== lowram - START
+		//setupslopevlinLQX(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]); // old
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	setupslopevlinLQX(xb + (yb << 8), waloff[globalpicnum], -ylookup[1]);
+	// ---=== lowram - FINISH
 
 	l = (globalzd>>16);
 
@@ -12144,9 +12711,10 @@ char slopeisfar; //for asm slopevlin2
 grouscanint_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 {
 	long i, j, k, l, m, n, x, y, dx, dy, wx, wy, x1, y1, x2, y2, daz;
-	long daslope, dasqr;
+        long daslope, dasqr, xb, yb;
 	long dashade, shoffs, shinc, m1, m2, *mptr1, *mptr2, *nptr1, *nptr2;
 	long perspdepthdist;
+        unsigned char sh;
 
 	walltype *wal;
 	sectortype *sec;
@@ -12257,7 +12825,13 @@ grouscanint_LQ2X (long dax1, long dax2, long sectnum, char dastat)
 	globvis = mulscale16(globvis,xdimscale);
 	j = FP_OFF(palookup[globalpal]);
 
-	setupslopevlin2LQX(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]);
+	// ---=== lowram - START
+		//setupslopevlin2LQX(((long)(picsiz[globalpicnum]&15))+(((long)(picsiz[globalpicnum]>>4))<<8),waloff[globalpicnum],-ylookup[1]); // old
+	sh = tile_shift[globalpicnum];
+	xb = (picsiz[globalpicnum] & 15) - sh;
+	yb = (picsiz[globalpicnum] >> 4) - sh;
+	setupslopevlin2LQX(xb + (yb << 8), waloff[globalpicnum], -ylookup[1]);
+	// ---=== lowram - FINISH
 
 	l = (globalzd>>16);
 
@@ -12351,8 +12925,8 @@ parascan (long dax1, long dax2, long sectnum, char dastat, long bunch)
 parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 {
 	sectortype *sec;
-	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak;
-	long skyfov;
+	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak, skyfov;
+	long skyshiftbase; // need to restore globalshiftval before each wallscan call in lowram mode
 	short *topptr, *botptr;
 
 	sectnum = thesector[bunchfirst[bunch]]; sec = &sector[sectnum];
@@ -12390,6 +12964,7 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 	globalshiftval = (picsiz[globalpicnum]>>4);
 	if (pow2long[globalshiftval] != tilesizy[globalpicnum]) globalshiftval++;
 	globalshiftval = 32-globalshiftval;
+	skyshiftbase = globalshiftval;
 	globalzd = (((tilesizy[globalpicnum]>>1)+parallaxyoffs)<<globalshiftval)+(globalypanning<<24);
 	globalyscale = (8<<(globalshiftval-19));
 	//if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
@@ -12440,7 +13015,10 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 			globalpicnum = l+pskyoff[lplc[x]>>m];
 
 			if (((lplc[x]^lplc[xb1[z]-1])>>m) == 0)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan(x,xb1[z]-1,topptr,botptr,swplc,lplc);
+			}
 			else
 			{
 				j = x;
@@ -12449,6 +13027,7 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					n = l+pskyoff[lplc[x]>>m];
 					if (n != globalpicnum)
 					{
+						globalshiftval = skyshiftbase;
 						wallscan(j,x-1,topptr,botptr,swplc,lplc);
 						j = x;
 						globalpicnum = n;
@@ -12456,7 +13035,10 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					x++;
 				}
 				if (j < x)
+				{
+					globalshiftval = skyshiftbase;
 					wallscan(j,x-1,topptr,botptr,swplc,lplc);
+				}
 			}
 
 			globalpicnum = l;
@@ -12470,7 +13052,10 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 		globalpicnum = l+pskyoff[lplc[x]>>m];
 
 		if (((lplc[x]^lplc[xb2[bunchlast[bunch]]])>>m) == 0)
+		{
+			globalshiftval = skyshiftbase;
 			wallscan(x,xb2[bunchlast[bunch]],topptr,botptr,swplc,lplc);
+		}
 		else
 		{
 			j = x;
@@ -12479,6 +13064,7 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				n = l+pskyoff[lplc[x]>>m];
 				if (n != globalpicnum)
 				{
+					globalshiftval = skyshiftbase;
 					wallscan(j,x-1,topptr,botptr,swplc,lplc);
 					j = x;
 					globalpicnum = n;
@@ -12486,7 +13072,10 @@ parascan_HQ (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				x++;
 			}
 			if (j <= x)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan(j,x,topptr,botptr,swplc,lplc);
+			}
 		}
 		globalpicnum = l;
 	}
@@ -12499,6 +13088,7 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 	sectortype *sec;
 	long i, j, k, l, m, n, x, y, z, wallnum, nextsectnum, globalhorizbak;
 	long scale_factor, scaled_ang, skyfov;
+	long skyshiftbase; // need to restore globalshiftval before each wallscan call in lowram mode
 	short *topptr, *botptr;
 
 	sectnum = thesector[bunchfirst[bunch]]; sec = &sector[sectnum];
@@ -12536,6 +13126,7 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 	globalshiftval = (picsiz[globalpicnum]>>4);
 	if (pow2long[globalshiftval] != tilesizy[globalpicnum]) globalshiftval++;
 	globalshiftval = 32-globalshiftval;
+	skyshiftbase = globalshiftval;
 	globalzd = (((tilesizy[globalpicnum]>>1)+parallaxyoffs)<<globalshiftval)+(globalypanning<<24);
 	globalyscale = (8<<(globalshiftval-19));
 	//if (globalorientation&256) globalyscale = -globalyscale, globalzd = -globalzd;
@@ -12600,7 +13191,10 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 			globalpicnum = l+pskyoff[lplc[x]>>m];
 
 			if (((lplc[x]^lplc[xb1[z]-1])>>m) == 0)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan_LQ2X(x,xb1[z]-1,topptr,botptr,swplc,lplc);
+			}
 			else
 			{
 				j = x;
@@ -12609,6 +13203,7 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					n = l+pskyoff[lplc[x]>>m];
 					if (n != globalpicnum)
 					{
+						globalshiftval = skyshiftbase;
 						wallscan_LQ2X(j,x-1,topptr,botptr,swplc,lplc);
 						j = x;
 						globalpicnum = n;
@@ -12616,7 +13211,10 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 					x++;
 				}
 				if (j < x)
+				{
+					globalshiftval = skyshiftbase;
 					wallscan_LQ2X(j,x-1,topptr,botptr,swplc,lplc);
+				}
 			}
 
 			globalpicnum = l;
@@ -12630,7 +13228,10 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 		globalpicnum = l+pskyoff[lplc[x]>>m];
 
 		if (((lplc[x]^lplc[xb2[bunchlast[bunch]]])>>m) == 0)
+		{
+			globalshiftval = skyshiftbase;
 			wallscan_LQ2X(x,xb2[bunchlast[bunch]],topptr,botptr,swplc,lplc);
+		}
 		else
 		{
 			j = x;
@@ -12639,6 +13240,7 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				n = l+pskyoff[lplc[x]>>m];
 				if (n != globalpicnum)
 				{
+					globalshiftval = skyshiftbase;
 					wallscan_LQ2X(j,x-1,topptr,botptr,swplc,lplc);
 					j = x;
 					globalpicnum = n;
@@ -12646,7 +13248,10 @@ parascan_LQ2X (long dax1, long dax2, long sectnum, char dastat, long bunch)
 				x++;
 			}
 			if (j <= x)
+			{
+				globalshiftval = skyshiftbase;
 				wallscan_LQ2X(j,x,topptr,botptr,swplc,lplc);
+			}
 		}
 		globalpicnum = l;
 	}

@@ -52,6 +52,32 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.30 changes (November 25, 2026)
+1) Add "/lowram" flag as a com-line parameter and as autodetected low ram:
+- it has 4 levels of degradation: 0 - disabled, 1 - crush all since 192px,
+                                  2 - 96px,     3 - 48px.
+  That's going to reduce size of tiles so they fit in less RAM.
+- it dumps the reduced size tiles in special "*.ARD" files;
+2) Add "lowramnocache" flag NOT to dump those degraded tiles (slower);
+3) Fix bug when transluscent wall sprites not depicted in LQ2X (386) ver:
+- fix dangling conditions in "drawmaskwall" that didn't call
+  the "transmaskwallscan_LQ2X" function at all.
+===========================================================================
+v0.29 changes (November 24, 2026)
+1) Fix MIDI stream only playing 1st slice:
+- add a function calling inside game.c, main, in "while":
+
+        // Update Low-Ram MIDI streaming each 30 ticks (1/4th of a second)
+        if ((totalclock & 30) == 0) MIDISLIC_UpdatePlaylist();
+        cheats();
+        nonsharedkeys();
+2) Remove RAM consumption by 36000 bytes (35.1KB);
+- create a temp XMI file in the root dir;
+- play it by 32kb chunks each allowing to speed it up on low end systems;
+- if disk wrtie failed, stream it from RAM, without recording a tmp file;
+- add "/MIDRAM" flag as comline parameter to stream only from ram, useful
+  if you have any disk problems;
+===========================================================================
 v0.28 changes (November 21, 2026)
 - add XMIDI playback;
 - add MIDI/XMIDI pseudo-streaming huge files in 32kb chunks and save RAM;

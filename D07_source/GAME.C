@@ -16,7 +16,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Softw4:53 20.06.2025are
+along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 Original Source: 1996 - Todd Replogle
@@ -103,6 +103,16 @@ int sendmessagecommand = -1;
 task *TimerPtr=NULL;
 
 extern long lastvisinc;
+
+// variables for void comlinehelp
+char dist_slow = 0;
+char use_fpu = 1;         // Use FPU to draw stuff like slopes by default
+char midram = 0;          // Set to 1 by /midram command-line flag to force direct RAM streaming
+char midforcestream = 0;  // Set to 1 by /MIDFORCESTREAM to force streaming even for small files
+char lowram = 0;          // Set low-RAM mode to reduce big tiles to save RAM (more pixelization)
+char lowramnocache = 0;   // Do NOT dump downscaled tilepics in ARD files on a disk if set
+char lowramforced = 0;
+long midslicesize_kb = 0; // Set via /MIDSLICESIZE# (in KB, 0 = auto)
 
 void timerhandler()
 {
@@ -6946,14 +6956,6 @@ void nonsharedkeys(void)
     }
 }
 
-
-
-char dist_slow = 0;
-char use_fpu = 1;         // Use FPU to draw stuff like slopes by default
-char midram = 0;          // Set to 1 by /midram command-line flag to force direct RAM streaming
-long midslicesize_kb = 0; // Set via /MIDSLICESIZE# (in KB, 0 = auto)
-char midforcestream = 0;  // Set to 1 by /MIDFORCESTREAM to force streaming even for small files
-
 void comlinehelp(char **argv)
 {
     int top = 0, max_top, r, ch;
@@ -6979,6 +6981,7 @@ void comlinehelp(char **argv)
         "  /I#               Enable/disable network mode",
         "  /J[dir]           Add directory to search path",
         "  /L#               Warp to level # (1-11)",
+        "  /LOWRAM[0-3]      Texture downscale level (0=off,192px, 96px, 48px)",
         "  /M                Disable monsters (no enemies)",
         "  /N#               Network mode: /N0 (coop), /N1 (spawn)",
         "  /O                Enable respawning sprites",
@@ -7100,7 +7103,7 @@ void comlinehelp(char **argv)
 
 void checkcommandline(int argc,char **argv)
 {
-    long kb = 0;
+    long kb = 0, lvltxtdegrad = 1;
     short i, j;
     char *c, *num_ptr;
 
@@ -7374,10 +7377,48 @@ void checkcommandline(int argc,char **argv)
                         break;
                     case 'l':
                     case 'L':
+                        // Check for /LOWRAM [0..3] and /LOWRAMNOCACHE before /L# (warp to level)
+                        if (strnicmp(c + 1, "owram", 5) == 0)
+                        {
+                            if (stricmp(c + 1, "owramnocache") == 0)
+                            {
+                                lowramnocache = 1;
+                                if (lowram == 0) lowram = 1;
+                                printf("Low RAM disk cache disabled (on-the-fly scaling).\n");
+                                break;
+                            }
+
+                            lvltxtdegrad = 1;
+                            num_ptr = c + 6;
+
+                            if (*num_ptr == '=' || *num_ptr == ':')
+                            {
+                                num_ptr++;
+                            }
+                            if (*num_ptr == 0 && (i + 1) < argc &&
+                                argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
+                            {
+                                num_ptr = argv[++i];
+                            }
+
+                            if (*num_ptr >= '0' && *num_ptr <= '9')
+                            {
+                                lvltxtdegrad = atol(num_ptr);
+                            }
+
+                            if (lvltxtdegrad < 0) lvltxtdegrad = 0;
+                            if (lvltxtdegrad > 3) lvltxtdegrad = 3;
+
+                            lowram = (char)lvltxtdegrad;
+                            lowramforced = 1;
+                            printf("Low RAM mode set to level %d.\n", (int)lowram);
+                            break;
+                        }
                         ud.warp_on = 1;
                         c++;
                         ud.m_level_number = ud.level_number = (atol(c)-1)%11;
                         break;
+
                     case 'j':
                     case 'J':
 #ifdef VOLUMEALL
@@ -8003,6 +8044,18 @@ void main(int argc,char **argv)
 //    }
 //    else
 //        printf("Using %ld bytes for heap.\n",totalmemory);
+
+    totalmemory = Z_AvailHeap();
+    if (!lowramforced)
+    {
+        if (totalmemory < (3162000L - 350000L))
+        {
+            lowram = 1;
+            printf("You need at least 6.8 Megs free for smooth original Duke 3D experinece.");
+            printf("Low RAM detected (%ld bytes free): adaptive texture downscale level 1.\n", totalmemory);
+        }
+    }
+        //printf("Using %ld bytes for heap.\n",totalmemory);
 
 #ifndef ONELEVELDEMO
 // CTW - REMOVED
