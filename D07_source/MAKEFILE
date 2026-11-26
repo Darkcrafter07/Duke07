@@ -39,7 +39,7 @@ config.obj : config.c $(globaldependencies)
 animlib.obj : animlib.c $(globaldependencies)
 	wcc386 animlib $(compileoptions)
 sndext.obj : sndext.c $(globaldependencies)
-	wcc386 sndext /zu $(compileoptions)
+	wcc386 sndext $(compileoptions)
 midslic.obj : midslic.c $(globaldependencies)
 	wcc386 midslic $(compileoptions)
 

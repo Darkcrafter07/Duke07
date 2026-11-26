@@ -41,7 +41,7 @@ animlib.obj : animlib.c $(globaldependencies)
 portals.obj : portals.c $(globaldependencies)
 	wcc386 portals $(compileoptions)
 sndext.obj : sndext.c $(globaldependencies)
-	wcc386 sndext /zu $(compileoptions)
+	wcc386 sndext $(compileoptions)
 midslic.obj : midslic.c $(globaldependencies)
 	wcc386 midslic $(compileoptions)
 
