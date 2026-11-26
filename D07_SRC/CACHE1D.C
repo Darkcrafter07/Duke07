@@ -248,16 +248,16 @@ static char toupperlookup[256] =
 	0xf0,0xf1,0xf2,0xf3,0xf4,0xf5,0xf6,0xf7,0xf8,0xf9,0xfa,0xfb,0xfc,0xfd,0xfe,0xff,
 };
 
-static long numgroupfiles = 0;
-static long gnumfiles[MAXGROUPFILES];
-static long groupfil[MAXGROUPFILES] = {-1,-1,-1,-1};
-static long groupfilpos[MAXGROUPFILES];
-static char *gfilelist[MAXGROUPFILES];
-static long *gfileoffs[MAXGROUPFILES];
+long numgroupfiles = 0;
+long gnumfiles[MAXGROUPFILES];
+long groupfil[MAXGROUPFILES] = {-1,-1,-1,-1};
+long groupfilpos[MAXGROUPFILES];
+char *gfilelist[MAXGROUPFILES];
+long *gfileoffs[MAXGROUPFILES];
 
-static char filegrp[MAXOPENFILES];
-static long filepos[MAXOPENFILES];
-static long filehan[MAXOPENFILES] =
+char filegrp[MAXOPENFILES];
+long filepos[MAXOPENFILES];
+long filehan[MAXOPENFILES] =
 {
 	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
 	-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,

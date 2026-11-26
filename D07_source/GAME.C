@@ -114,6 +114,10 @@ char lowramnocache = 0;   // Do NOT dump downscaled tilepics in ARD files on a d
 char lowramforced = 0;
 long midslicesize_kb = 0; // Set via /MIDSLICESIZE# (in KB, 0 = auto)
 
+// 2-way PCM VOC/WAV to DVI/IMA WAV converter
+extern int cnv_adpcm_bits; // declared in sndext.c
+extern int cnv_pcm_mode;   // declared in sndext.c
+
 void timerhandler()
 {
     totalclock++;
@@ -7000,8 +7004,10 @@ void comlinehelp(char **argv)
         "  /NS               Disable sound effects",
         "  /NM               Disable music",
         "  /MIDFORCESTREAM   Force MIDI/XMI streaming despite RAM amount",
-        "  /MIDRAM           Force MIDI/XMI RAM streaming (no temp file)",
+        "  /MIDRAM           Force MIDI/XMI RAM streaming (no temp files)",
         "  /MIDSLICESIZE#    Force MIDI slice size in KB (16-1024, e.g. 32)",
+        "  /CNVSND2WAVAD[2-5] Convert GRP/root sounds DVI ADPCM WAV (2-5 bit)",
+        "  /CNVADPCMTOPCM[0-1] Decode ADPCM WAVs to PCM (0=VOC, 1=WAV)",
         "",
         "Video & Hardware Options:",
         "  /SETUP            Launch setup configuration",
@@ -7105,7 +7111,7 @@ void checkcommandline(int argc,char **argv)
 {
     long kb = 0, lvltxtdegrad = 1;
     short i, j;
-    char *c, *num_ptr;
+    char *c, *num_ptr, bch, mch;
 
     i = 1;
 
@@ -7223,6 +7229,25 @@ void checkcommandline(int argc,char **argv)
                         break;
                     case 'c':
                     case 'C':
+                        if (strnicmp(c, "cnvsnd2wavad", 12) == 0)
+                        {
+                            bch = *(c + 12);
+                            if (bch >= '2' && bch <= '5')
+                                cnv_adpcm_bits = bch - '0';
+                            else
+                                cnv_adpcm_bits = 4;
+                            break;
+                        }
+                        if (strnicmp(c, "cnvadpcmtopcm", 13) == 0)
+                        {
+                            mch = *(c + 13);
+                            if (mch == '1')
+                                cnv_pcm_mode = 1; // 1 = RIFF PCM .WAV
+                            else
+                                cnv_pcm_mode = 0; // 0 = Creative .VOC (default)
+                            break;
+                        }
+
                         c++;
                         if(*c == '1' || *c == '2' || *c == '3' )
                             ud.m_coop = *c - '0' - 1;
@@ -7231,13 +7256,13 @@ void checkcommandline(int argc,char **argv)
                         switch(ud.m_coop)
                         {
                             case 0:
-                                puts("dukematch (spawn).");
+                                puts("Dukematch (spawn).");
                                 break;
                             case 1:
                                 puts("Cooperative play.");
                                 break;
                             case 2:
-                                puts("dukematch (no spawn).");
+                                puts("Dukematch (no spawn).");
                                 break;
                         }
 
@@ -8085,6 +8110,20 @@ void main(int argc,char **argv)
 #endif
 
     Startup();
+
+    // Converter PCM<->ADPCM related stuff below
+    if (cnv_adpcm_bits > 0)
+    {
+        FX_BatchConvertSoundsToADPCM(cnv_adpcm_bits);
+        uninitgroupfile();
+        exit(0);
+    }
+    if (cnv_pcm_mode >= 0)
+    {
+        FX_BatchConvertADPCMToPCM(cnv_pcm_mode);
+        uninitgroupfile();
+        exit(0);
+    }
 
     if( eightytwofifty && numplayers > 1 && (MusicDevice != NumSoundCards) )
     {

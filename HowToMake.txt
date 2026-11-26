@@ -52,6 +52,16 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.31 changes (November 27, 2026)
+1) Add full DVI/IMA WAV ADPCM support:
+- stream via "soundstream" while playing ANM files;
+- supports 2, 3, 4, 5 bits per sample;
+2) Add two flags: "/cnvsnd2wavad", "/cnvadpcmtopcm" that create a folder
+   "ADPCMCNV" with converted files and a txt report file "SNDCNVRP.TXT"
+   in the game root folder; That extracts ALL sound files from Duke3D.grp
+   and overrides it with sound files (if found) in your root folder.
+- that makes it possible to create lower size GRP files.
+===========================================================================
 v0.30 changes (November 25, 2026)
 1) Add "/lowram" flag as a com-line parameter and as autodetected low ram:
 - it has 4 levels of degradation: 0 - disabled, 1 - crush all since 192px,

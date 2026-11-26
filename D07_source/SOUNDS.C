@@ -46,9 +46,10 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #define LOUDESTVOLUME 150
 
 long backflag,numenvsnds;
-extern char midram;          // comline parameter declared in game.c
-extern long midslicesize_kb; // force midi/xmidi chunk size for streaming, in game.c
-extern char midforcestream;  // engage MIDI/XMIDI streaming regardless of RAM
+extern char midram;             // comline parameter declared in game.c
+extern char midforcestream;     // engage MIDI/XMIDI streaming regardless of RAM
+extern char s_adpcm_last_err[]; // track last ADPCM error, declared in sndext.c
+extern long midslicesize_kb;    // force midi/xmidi chunk size for streaming, in game.c
 
 //===================
 //=
@@ -58,7 +59,7 @@ extern char midforcestream;  // engage MIDI/XMIDI streaming regardless of RAM
 static long m_mus_buf_size = MUS_BUF_8MB;
 static long m_mus_half_size = (MUS_BUF_8MB >> 1);
 static unsigned int m_mus_slice_limit = SLICE_LIMIT_8MB;
-static char *MusicPtr = NULL; // RAM amount dependent initial MIDI buffer size
+static char *MusicPtr = NULL;       // RAM amount dependent initial MIDI buffer size
 static char m_mus_cache_lock = 255; // 255 = permanent lock in Build cache1d
 
 static void calctotalmemory(void)
@@ -688,23 +689,55 @@ void playmusicold(char *fn) // don't touch it
 //= Sound stuff
 //=
 //===================
-
 char loadsound(unsigned short num)
 {
     long fp, l;
+    unsigned char probe_hdr[24];
 
     if (num >= NUM_SOUNDS || SoundToggle == 0) return 0;
     if (FXDevice == NumSoundCards)             return 0;
 
-    fp = kopen4load(sounds[num], loadfromgrouponly);
+    //fp = kopen4load(sounds[num], loadfromgrouponly);
+    fp = kopen4load(sounds[num], 0);
     if (fp == -1)
     {
-        sprintf(&fta_quotes[113][0], "Sound %s(#%ld) not found.", sounds[num], num);
+        sprintf(&fta_quotes[113][0], "Sound %s(#%ld) not found.", sounds[num], (long)num);
         FTA(113, &ps[myconnectindex]);
         return 0;
     }
 
     l = kfilelength(fp);
+
+    // Check if file is a RIFF/WAVE DVI IMA ADPCM (format tag 0x0011)
+    if (l > 44 && kread(fp, probe_hdr, 24) == 24)
+    {
+        if (probe_hdr[0]  == 'R' && probe_hdr[1]  == 'I' &&
+            probe_hdr[2]  == 'F' && probe_hdr[3]  == 'F' &&
+            probe_hdr[8]  == 'W' && probe_hdr[9]  == 'A' &&
+            probe_hdr[10] == 'V' && probe_hdr[11] == 'E' &&
+            *(unsigned short *)(probe_hdr + 20) == 0x0011)
+        {
+            if (FX_FullRAMLoad_ADPCM_DVI_WAV(fp, l, &Sound[num].ptr, &Sound[num].lock, &soundsiz[num]))
+            {
+                //sprintf(&fta_quotes[113][0], "ADPCM OK: %s (%ld B)", sounds[num], soundsiz[num]);
+                //FTA(113, &ps[myconnectindex]);
+                kclose(fp);
+                return 1;
+            }
+            else
+            {
+                //sprintf(&fta_quotes[113][0], "ADPCM FAIL: %s (fmt=%u)", sounds[num], *(unsigned short *)(probe_hdr + 20));
+                //FTA(113, &ps[myconnectindex]);
+            }
+        }
+        else
+        {
+            //sprintf(&fta_quotes[113][0], "NOT ADPCM: %s (fmt=%u)", sounds[num], *(unsigned short *)(probe_hdr + 20));
+            //FTA(113, &ps[myconnectindex]);
+        }
+        klseek(fp, 0L, SEEK_SET);
+    }
+
     soundsiz[num] = l;
 
     Sound[num].lock = 200;
@@ -717,23 +750,19 @@ char loadsound(unsigned short num)
 
 int xyzsound(short num, short i, long x, long y, long z)
 {
-    int voice, sndang, ca, pitch;
-    long sndist, cx, cy, cz, j, k;
+    int voice, sndang, ca, pitch, vol3d;
+    long sndist, cx, cy, cz, j, k, wav_rate;
     short pitche, pitchs, cs;
-    unsigned short start;
+    unsigned short start, wav_fmt;
 
     //if(num != 358) return 0;
 
-    if (
-        num >= NUM_SOUNDS ||
-        FXDevice == NumSoundCards ||
-        ((soundm[num] & 8) && ud.lockout) ||
-        SoundToggle == 0 ||
-        Sound[num].num > 3 ||
-        FX_VoiceAvailable(soundpr[num]) == 0 ||
-        (ps[myconnectindex].timebeforeexit > 0 && ps[myconnectindex].timebeforeexit <= 26 * 3) ||
-        ps[myconnectindex].gm & MODE_MENU
-    )
+    if (num >= NUM_SOUNDS || FXDevice == NumSoundCards ||
+       ((soundm[num] & 8) && ud.lockout) ||
+       SoundToggle == 0 || Sound[num].num > 3 ||
+       FX_VoiceAvailable(soundpr[num]) == 0 ||
+       (ps[myconnectindex].timebeforeexit > 0 && ps[myconnectindex].timebeforeexit <= 26 * 3) ||
+       ps[myconnectindex].gm & MODE_MENU)
     {
         return -1;
     }
@@ -878,6 +907,15 @@ int xyzsound(short num, short i, long x, long y, long z)
         }
     }
 
+    // Some diagnostics
+    //if (num == 254 && Sound[num].ptr != 0)
+    //{
+    //    sprintf(&fta_quotes[113][0], "254: fmt=%u | %s",
+    //            *(unsigned short *)(Sound[num].ptr + 20), s_adpcm_last_err);
+    //    FTA(113, &ps[myconnectindex]);
+    //}
+
+
     if (soundm[num] & 16)
     {
         sndist = 0;
@@ -886,6 +924,50 @@ int xyzsound(short num, short i, long x, long y, long z)
     if (sndist < ((255 - LOUDESTVOLUME) << 6))
     {
         sndist = ((255 - LOUDESTVOLUME) << 6);
+    }
+
+    // The IMA/DVI ADPCM decoded to PCM WAV branch (starts with 'R')
+    if (*Sound[num].ptr == 'R')
+    {
+        wav_fmt = *(unsigned short *)(Sound[num].ptr + 20);
+        wav_rate = *(long *)(Sound[num].ptr + 24);
+
+        if (wav_fmt == 1 && soundsiz[num] > 44)
+        {
+            if (soundm[num] & 1)
+            {
+                if (Sound[num].num > 0)
+                {
+                    return -1;
+                }
+                voice = FX_PlayLoopedRaw(Sound[num].ptr + 44, soundsiz[num] - 44,
+                                         Sound[num].ptr + 44, Sound[num].ptr + soundsiz[num] - 1,
+                                         wav_rate, pitch, sndist >> 6, sndist >> 6, 0,
+                                         soundpr[num], num);
+            }
+            else
+            {
+                vol3d = 255 - (sndist >> 6);
+                if (vol3d < 0) vol3d = 0;
+                if (vol3d > 255) vol3d = 255;
+
+                voice = FX_PlayRaw(Sound[num].ptr + 44, soundsiz[num] - 44,
+                                   wav_rate, pitch, vol3d, vol3d, vol3d,
+                                   soundpr[num], num);
+            }
+
+            if (voice > FX_Ok)
+            {
+                SoundOwner[num][Sound[num].num].i = i;
+                SoundOwner[num][Sound[num].num].voice = voice;
+                Sound[num].num++;
+            }
+            else
+            {
+                Sound[num].lock--;
+            }
+            return (voice);
+        }
     }
 
     if (soundm[num] & 1)
@@ -938,8 +1020,9 @@ int xyzsound(short num, short i, long x, long y, long z)
 void sound(short num)
 {
     int voice;
-    long start;
+    long start, wav_rate;
     short pitch, pitche, pitchs, cx;
+    unsigned short wav_fmt;
 
     if (FXDevice == NumSoundCards)             return;
     if (SoundToggle == 0)                      return;
@@ -986,6 +1069,41 @@ void sound(short num)
         }
     }
 
+    // If buffer in cache, the IMA/DVI ADPCM decoded to PCM WAV (starts with 'R')
+    if (*Sound[num].ptr == 'R')
+    {
+        wav_fmt  = *(unsigned short *)(Sound[num].ptr + 20);
+        wav_rate = *(long *)(Sound[num].ptr + 24);
+
+        // If this is a standard 8-bit PCM WAV (including decompressed ADPCM)
+        if (wav_fmt == 1 && soundsiz[num] > 44)
+        {
+            if (soundm[num] & 1)
+            {
+                // Looped RAW (skip 44 bytes of header)
+                voice = FX_PlayLoopedRaw(Sound[num].ptr + 44, soundsiz[num] - 44,
+                                         Sound[num].ptr + 44, Sound[num].ptr + soundsiz[num] - 1,
+                                         wav_rate, pitch, LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
+                                         soundpr[num], num);
+            }
+            else
+            {
+                // Regular RAW (skip 44 bytes of header)
+                voice = FX_PlayRaw(Sound[num].ptr + 44, soundsiz[num] - 44,
+                                   wav_rate, pitch, LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
+                                   soundpr[num], num);
+            }
+
+            if (voice > FX_Ok)
+            {
+                return;
+            }
+            Sound[num].lock--;
+            return;
+        }
+    }
+
+    // The standard branch for VOC format and other sounds
     if (soundm[num] & 1)
     {
         if (*Sound[num].ptr == 'C')

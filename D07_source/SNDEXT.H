@@ -35,29 +35,6 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 
 #pragma pack(push, 1)
 
-
-
-//**************************************************************************
-// MULTIVOC SAMPLING SPEED AND RATE-SCALE COMPENSATOR RULE [DO's & DON'Ts]
-//**************************************************************************
-// DON'T: DO NOT pass raw extracted file frequencies (e.g. 11025Hz, 8713Hz)
-//        directly into MV_PlayRaw() rate parameters.
-//        Multivoc's raw injection pathway lacks a container header parser 
-//        and completely bypasses James Dose native Time Constant formula:
-//        samplespeed = 256000000L / (65536 - tc);
-//        Passing file-specific rates here directly warps the assembly
-//        RateScale shift registers, throwing pitch into a chaotic sub-cella
-//        or making sounds chipmunk-accelerated, stuttering and broken.
-//
-// DO:    ALWAYS lock rate argument strictly to the game native hardware
-//        mixing frequency: global variable "MixRate" (8,16,22,44kHz etc).
-//        By feeding the double-buffering cache frame pages aligned
-//        byte-for-byte to the core hardware mixer speed, forcing Multivoc
-//        interpolator step size to a surgical 1.0 integer ratio.
-//        This eliminates continuous pitch-shifting distortions,
-//        locks frequency natively.
-//**************************************************************************
-
 // Supported sound stream container formats
 #define FMT_UNKNOWN    0
 #define FMT_VOC        1
@@ -92,8 +69,8 @@ typedef struct
     int adpcm_block_pos;            // Bytes consumed inside current block payload
     int adpcm_block_payload_size;   // Payload bytes per block (block_align - 4)
     long data_start_offset;         // Offset of first ADPCM block in file
-    int adpcm_nibble_pos;           // Bit offset in adpcm_cur_byte (8 = empty)
-    unsigned char adpcm_cur_byte;
+    unsigned int adpcm_bit_buf;     // LSB-first bit-stream accumulator for 2/3/4/5-bit ADPCM
+    int adpcm_bit_cnt;              // Valid unread bits currently held in adpcm_bit_buf
 } sound_stream_t;
 
 #pragma pack(pop)
@@ -105,6 +82,11 @@ void FX_StopVocStream(void);
 void soundstream(short num);
 void pausesound(int toggle);
 void pausesoundticks(long ticks);
+
+char FX_FullRAMLoad_ADPCM_DVI_WAV(long fp, long file_len, char **out_ptr, unsigned char *lock_ptr, long *out_size);
+
+void FX_BatchConvertSoundsToADPCM(int target_bits);
+void FX_BatchConvertADPCMToPCM(int out_wav_mode); // 0 = VOC, 1 = PCM WAV
 
 // Global stream context pointer shared across the subsystem
 extern sound_stream_t *sound_stream_ctx;

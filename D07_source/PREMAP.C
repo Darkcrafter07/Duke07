@@ -25,6 +25,7 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 //-------------------------------------------------------------------------
 
 #include "duke3d.h"
+#include "sndext.h"
 
 long g_baseCeilingPan[MAXSECTORS] = {0};
 long g_baseFloorPan[MAXSECTORS] = {0};
@@ -238,15 +239,18 @@ void cachegoodsprites(void)
             tloadtile(i);
 }
 
+#define PROBEHDRSZ 24
 char getsound(unsigned short num)
 {
+    long  l;
     short fp;
-    long   l;
+    unsigned char probe_hdr[PROBEHDRSZ];
 
     if(num >= NUM_SOUNDS || SoundToggle == 0) return 0;
     if (FXDevice == NumSoundCards) return 0;
 
-    fp = kopen4load(sounds[num],loadfromgrouponly);
+    //fp = kopen4load(sounds[num], loadfromgrouponly);
+    fp = kopen4load(sounds[num], 0);
     if(fp == -1) return 0;
 
     l = kfilelength( fp );
@@ -255,6 +259,22 @@ char getsound(unsigned short num)
     if( (ud.level_number == 0 && ud.volume_number == 0 && (num == 189 || num == 232 || num == 99 || num == 233 || num == 17 ) ) ||
         ( l < 12288 ) )
     {
+        if (l > 44 && kread(fp, probe_hdr, 24) == 24)
+        {
+            if (memcmp(probe_hdr, "RIFF", 4) == 0 &&
+                memcmp(probe_hdr + 8, "WAVE", 4) == 0 &&
+                *(unsigned short *)(probe_hdr + 20) == 0x0011)
+            {
+                if (FX_FullRAMLoad_ADPCM_DVI_WAV((long)fp, l, &Sound[num].ptr, (unsigned char *)&Sound[num].lock, &soundsiz[num]))
+                {
+                    Sound[num].lock = 2;
+                    kclose(fp);
+                    return 1;
+                }
+            }
+            klseek(fp, 0L, SEEK_SET);
+        }
+
         Sound[num].lock = 2;
         allocache((long *)&Sound[num].ptr,l,&Sound[num].lock);
         if(Sound[num].ptr != NULL)
