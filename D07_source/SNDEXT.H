@@ -88,6 +88,12 @@ typedef struct
     int adpcm_step_index;           // Current step table index (0..88)
     int adpcm_resample_acc;         // 
     int adpcm_bits;                 // Stream bit-depth: 2, 3 or 4 bits
+    int adpcm_block_align;          // WAV block_align (bytes per IMA block)
+    int adpcm_block_pos;            // Bytes consumed inside current block payload
+    int adpcm_block_payload_size;   // Payload bytes per block (block_align - 4)
+    long data_start_offset;         // Offset of first ADPCM block in file
+    int adpcm_nibble_pos;           // Bit offset in adpcm_cur_byte (8 = empty)
+    unsigned char adpcm_cur_byte;
 } sound_stream_t;
 
 #pragma pack(pop)

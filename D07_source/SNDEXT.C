@@ -64,6 +64,9 @@ Prepared for public release: 03/21/2003 - Charlie Wiederhold, 3D Realms
 #include "sndext.h"
 
 #define LOUDESTVOLUME 150
+#define WAV_HDR_SZ 8
+#define WAV_FMT_SZ 32
+#define ADPCM_PACKED_BUFSZ 512
 
 // External hardware and mixer config variables from Duke3D
 extern int32 FXDevice, MusicDevice;
@@ -100,7 +103,7 @@ static byte static_stream_buffer_1[16384];
 //===============================================================================
 
 // Low-level high-speed Intel/DVI IMA ADPCM Lookup Tables
-static const int stepSizeTable[89] = 
+static const int stepSizADPCMTabDVI[89] =
 {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
     50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230,
@@ -110,23 +113,24 @@ static const int stepSizeTable[89] =
     12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
 };
 
-static const int indexAdjustTable2b[2] = { -1, 2 };
-static const int indexAdjustTable3b[4] = { -1, -1, 2, 4 };
-static const int indexAdjustTable4b[8] = { -1, -1, -1, -1, 2, 4, 6, 8 };
+static const int idxAdjADPCMTabDVI2b[] = { -1, 2 };
+static const int idxAdjADPCMTabDVI3b[] = { -1, -1, 2, 4 };
+static const int idxAdjADPCMTabDVI4b[] = { -1, -1, -1, -1, 2, 4, 6, 8 };
 
-// Fixed-point i486 decoder for Intel/DVI ADPCM standard (2, 3, 4 bits)
-static short DecodeDviSample(int code, int bits, int *predictor, int *step_index) 
+//===============================================================================
+// Decode_ADPCM_DVI_smp() - Decode one 2,3 or 4-bit IMA ADPCM nibble
+//===============================================================================
+static short Decode_ADPCM_DVI_smp(int code, int bits, int *predictor, int *step_index)
 {
     int i, step, vpdiff, sign_mask, mag_mask, sign, magnitude;
 
-    sign_mask = 1 << (bits - 1);       // MSB is the sign bit
-    mag_mask  = sign_mask - 1;         // Remaining bits are magnitude
+    sign_mask = 1 << (bits - 1);
+    mag_mask  = sign_mask - 1;
 
-    step = stepSizeTable[*step_index];
-    sign = code & sign_mask;
+    step      = stepSizADPCMTabDVI[*step_index];
+    sign      = code & sign_mask;
     magnitude = code & mag_mask;
 
-    // Pure Intel/DVI algorithmic quantization formula from SpanDSP standard
     vpdiff = 0;
     for (i = bits - 2; i >= 0; i--)
     {
@@ -135,44 +139,394 @@ static short DecodeDviSample(int code, int bits, int *predictor, int *step_index
             vpdiff += (step >> ((bits - 2) - i));
         }
     }
-    vpdiff += (step >> (bits - 1));    // Add 0.5 rounding step fraction
+    vpdiff += (step >> (bits - 1));
 
-    // Apply delta signed value directly to history predictor
-    if (sign) 
+    if (sign)
     {
         *predictor -= vpdiff;
-        if (*predictor < -32768) 
-        {
-            *predictor = -32768;
-        }
-    } 
-    else 
-    {
-        *predictor += vpdiff;
-        if (*predictor > 32767) 
-        {
-            *predictor = 32767;
-        }
-    }
-
-    // Adjust step table index limits based on current bit depth
-    if (bits == 2) 
-    {
-        *step_index += indexAdjustTable2b[magnitude & 1];
-    }
-    else if (bits == 3)
-    {
-        *step_index += indexAdjustTable3b[magnitude & 3];
+        if (*predictor < -32768) *predictor = -32768;
     }
     else
     {
-        *step_index += indexAdjustTable4b[magnitude & 7];
+        *predictor += vpdiff;
+        if (*predictor > 32767) *predictor = 32767;
     }
+
+    if (bits == 2)        *step_index += idxAdjADPCMTabDVI2b[magnitude & 1];
+    else if (bits == 3)   *step_index += idxAdjADPCMTabDVI3b[magnitude & 3];
+    else                  *step_index += idxAdjADPCMTabDVI4b[magnitude & 7];
 
     if (*step_index < 0)  *step_index = 0;
     if (*step_index > 88) *step_index = 88;
 
     return (short)(*predictor);
+}
+
+// MV_ReadADPCMBlockHeader() - Read predictor/step from start of IMA block
+static void MV_ReadADPCMBlockHeader(sound_stream_t *ctx)
+{
+    unsigned char hdr[4];
+
+    // Each IMA block starts with 4 header bytes:
+    //   int16 predictor (LE), uint8 step index, uint8 reserved
+    if (kread_stream(ctx->file_handle, hdr, 4) == 4)
+    {
+        ctx->adpcm_predictor = (int)(short)(hdr[0] | (hdr[1] << 8));
+        ctx->adpcm_step_index = (int)hdr[2];
+        if (ctx->adpcm_step_index > 88)
+        {
+            ctx->adpcm_step_index = 88;
+        }
+    }
+}
+
+// Decode up to bytes_to_write PCM8 samples from the current block.
+// Returns number of PCM8 samples written. Sets *compressed_read to the
+// number of compressed bytes consumed from disk.
+static int MV_Decomp_ADPCM_DVI_block(sound_stream_t *ctx, unsigned char *output_buffer8, 
+                                           int bytes_to_write, long *compressed_read)
+{
+    int out_samples, block_payload, code;
+    int bits, mask, fetched, byte_idx;
+    int bytes_to_fetch, samples_per_byte, rem_out;
+    short sample_calced;
+    unsigned char pcm8_val;
+    unsigned char packed_buffer[ADPCM_PACKED_BUFSZ];
+
+    out_samples = 0;
+    *compressed_read = 0;
+
+    if (ctx->sample_rate <= 0) ctx->sample_rate = 11025;
+    bits = ctx->adpcm_bits;
+    if (bits != 2 && bits != 3 && bits != 4) bits = 4;
+    mask = (1 << bits) - 1;
+    samples_per_byte = 8 / bits;
+
+    block_payload = ctx->adpcm_block_align - 4;
+    if (block_payload <= 0 || block_payload > ADPCM_PACKED_BUFSZ)
+    {
+        return 0;
+    }
+
+    // 1. Flush any leftover nibbles from the previous page's last byte first!
+    while (ctx->adpcm_nibble_pos < 8 && out_samples < bytes_to_write)
+    {
+        code = (ctx->adpcm_cur_byte >> ctx->adpcm_nibble_pos) & mask;
+        ctx->adpcm_nibble_pos += bits;
+
+        sample_calced = Decode_ADPCM_DVI_smp(code, bits, &ctx->adpcm_predictor, &ctx->adpcm_step_index);
+        pcm8_val = (unsigned char)(((int)sample_calced >> 8) + 128);
+
+        ctx->adpcm_resample_acc += MixRate;
+        while (ctx->adpcm_resample_acc >= (int)ctx->sample_rate && out_samples < bytes_to_write)
+        {
+            output_buffer8[out_samples++] = pcm8_val;
+            ctx->adpcm_resample_acc -= (int)ctx->sample_rate;
+        }
+    }
+
+    if (out_samples >= bytes_to_write)
+    {
+        return out_samples;
+    }
+
+    // 2. Start of a new block: read its 4-byte header
+    if (ctx->adpcm_block_pos >= ctx->adpcm_block_payload_size && ctx->adpcm_nibble_pos >= 8)
+    {
+        if (ctx->remaining_bytes < ctx->adpcm_block_align)
+        {
+            return out_samples;
+        }
+        MV_ReadADPCMBlockHeader(ctx);
+        *compressed_read += 4;
+        ctx->remaining_bytes -= 4;
+        ctx->adpcm_block_pos = 0;
+        ctx->adpcm_block_payload_size = block_payload;
+        ctx->adpcm_nibble_pos = 8;
+    }
+
+    // 3. Decode bytes from current block without ever discarding unread tail bytes
+    while (out_samples < bytes_to_write &&
+           ctx->adpcm_block_pos < ctx->adpcm_block_payload_size)
+    {
+        rem_out = bytes_to_write - out_samples;
+
+        // Estimate safe number of compressed bytes that fit completely into rem_out
+        bytes_to_fetch = (rem_out * (int)ctx->sample_rate) / (MixRate * samples_per_byte);
+        if (bytes_to_fetch < 1)
+        {
+            bytes_to_fetch = 1; // Fetch 1 byte at a time near the very end of the page
+        }
+        if (bytes_to_fetch > (ctx->adpcm_block_payload_size - ctx->adpcm_block_pos))
+        {
+            bytes_to_fetch = ctx->adpcm_block_payload_size - ctx->adpcm_block_pos;
+        }
+        if (bytes_to_fetch > ADPCM_PACKED_BUFSZ)
+        {
+            bytes_to_fetch = ADPCM_PACKED_BUFSZ;
+        }
+        if (bytes_to_fetch > ctx->remaining_bytes)
+        {
+            bytes_to_fetch = (int)ctx->remaining_bytes;
+        }
+        if (bytes_to_fetch <= 0)
+        {
+            break;
+        }
+
+        fetched = kread_stream(ctx->file_handle, packed_buffer, bytes_to_fetch);
+        if (fetched <= 0)
+        {
+            break;
+        }
+
+        *compressed_read += fetched;
+        ctx->remaining_bytes -= fetched;
+        ctx->adpcm_block_pos += fetched;
+
+        for (byte_idx = 0; byte_idx < fetched; byte_idx++)
+        {
+            ctx->adpcm_cur_byte = packed_buffer[byte_idx];
+            ctx->adpcm_nibble_pos = 0;
+
+            while (ctx->adpcm_nibble_pos < 8 && out_samples < bytes_to_write)
+            {
+                code = (ctx->adpcm_cur_byte >> ctx->adpcm_nibble_pos) & mask;
+                ctx->adpcm_nibble_pos += bits;
+
+                sample_calced = Decode_ADPCM_DVI_smp
+                (
+                    code,
+                    bits,
+                    &ctx->adpcm_predictor,
+                    &ctx->adpcm_step_index
+                );
+                pcm8_val = (unsigned char)(((int)sample_calced >> 8) + 128);
+
+                ctx->adpcm_resample_acc += MixRate;
+                while (ctx->adpcm_resample_acc >= (int)ctx->sample_rate && out_samples < bytes_to_write)
+                {
+                    output_buffer8[out_samples++] = pcm8_val;
+                    ctx->adpcm_resample_acc -= (int)ctx->sample_rate;
+                }
+            }
+
+            // If output buffer filled up mid-byte, stop immediately; remaining nibbles stay in ctx!
+            if (out_samples >= bytes_to_write)
+            {
+                break;
+            }
+        }
+    }
+
+    return out_samples;
+}
+
+// MV_Parse_ADPCM_DVI_WAV() - Read block_align and locate 'data' chunk for IMA WAV, call in soundstream
+static int MV_Parse_ADPCM_DVI_WAV(sound_stream_t *ctx, long *data_offset, long *data_size)
+{
+    int  fmt_found;
+    long pos, chunk_size;
+    unsigned char chunk_hdr[WAV_HDR_SZ];
+    unsigned char fmt_buf[WAV_FMT_SZ];
+
+    fmt_found = 0;
+    pos = 12;
+
+    klseek_stream(ctx->file_handle, pos, SEEK_SET);
+
+    while (kread_stream(ctx->file_handle, chunk_hdr, 8) == 8)
+    {
+        chunk_size = (long)(*(chunk_hdr + 4) | (*(chunk_hdr + 5) << 8) |
+                            (*(chunk_hdr + 6) << 16) | ((long)*(chunk_hdr + 7) << 24));
+
+        if (*(chunk_hdr + 0) == 'f' && *(chunk_hdr + 1) == 'm' &&
+            *(chunk_hdr + 2) == 't' && *(chunk_hdr + 3) == ' ')
+        {
+            if (kread_stream(ctx->file_handle, fmt_buf, 16) != 16)
+            {
+                return 0;
+            }
+            // fmt_buf[4..7] = sample_rate, [12..13] = block_align, [14..15] = bits per sample
+            ctx->sample_rate = (unsigned long)(*(fmt_buf + 4) | (*(fmt_buf + 5) << 8) |
+                               ((unsigned long)*(fmt_buf + 6) << 16) |
+                               ((unsigned long)*(fmt_buf + 7) << 24));
+            ctx->adpcm_block_align = (int)(*(fmt_buf + 12) | (*(fmt_buf + 13) << 8));
+            ctx->adpcm_bits        = (int)(*(fmt_buf + 14) | (*(fmt_buf + 15) << 8));
+            if (ctx->adpcm_bits != 2 && ctx->adpcm_bits != 3 && ctx->adpcm_bits != 4)
+            {
+                ctx->adpcm_bits = 4;
+            }
+            fmt_found = 1;
+
+            pos += 8 + chunk_size + (chunk_size & 1);
+            klseek_stream(ctx->file_handle, pos, SEEK_SET);
+            continue;
+        }
+
+        if (*(chunk_hdr + 0) == 'd' && *(chunk_hdr + 1) == 'a' &&
+            *(chunk_hdr + 2) == 't' && *(chunk_hdr + 3) == 'a')
+        {
+            if (!fmt_found)
+            {
+                return 0;
+            }
+            *data_offset = pos + 8;
+            *data_size   = chunk_size;
+            return 1;
+        }
+
+        pos += 8 + chunk_size + (chunk_size & 1);
+        klseek_stream(ctx->file_handle, pos, SEEK_SET);
+    }
+
+    return 0;
+}
+
+// soundstream_adpcm_init() - Initialize IMA ADPCM streaming (called from soundstream)
+static void soundstream_adpcm_init(short num, long file_len)
+{
+    int i, next_page, page_size;
+    long data_offset, data_size;
+    long bytes_decoded, compressed_read;
+    unsigned char hdr_scratch[3];
+
+    data_offset = 0;
+    data_size = 0;
+    compressed_read = 0;
+    bytes_decoded = 0;
+    next_page = 1;
+    page_size = 16384;
+
+    if (!MV_Parse_ADPCM_DVI_WAV(sound_stream_ctx, &data_offset, &data_size))
+    {
+        FX_StopVocStream();
+        return;
+    }
+
+    audio_header_offset = data_offset;
+    sound_stream_ctx->data_start_offset = data_offset;
+    sound_stream_ctx->remaining_bytes = data_size;
+
+    if (sound_stream_ctx->adpcm_block_align <= 4)
+    {
+        FX_StopVocStream();
+        return;
+    }
+
+    sound_stream_ctx->adpcm_nibble_pos = 8;
+    sound_stream_ctx->adpcm_resample_acc = 0;
+    sound_stream_ctx->adpcm_block_pos = 0;
+    sound_stream_ctx->adpcm_block_payload_size = 0;
+
+    klseek_stream(sound_stream_ctx->file_handle, data_offset, SEEK_SET);
+
+    memset(sound_stream_ctx->audio_windows[0], 128, page_size);
+    memset(sound_stream_ctx->audio_windows[1], 128, page_size);
+
+    // Pre-decode page 0 (plays first)
+    bytes_decoded = MV_DecompressPage
+    (
+        sound_stream_ctx,
+        sound_stream_ctx->audio_windows[0],
+        page_size,
+        &compressed_read
+    );
+    sound_stream_ctx->current_chunk_size = (int)bytes_decoded;
+
+    // Pre-decode page 1 (lookahead, will play next)
+    bytes_decoded = MV_DecompressPage
+    (
+        sound_stream_ctx,
+        sound_stream_ctx->audio_windows[next_page],
+        page_size,
+        &compressed_read
+    );
+    sound_stream_ctx->next_chunk_size = (int)bytes_decoded;
+
+    sound_stream_ctx->active_page = 0;
+    sound_stream_ctx->playing = 1;
+    audio_stream_active = 1;
+
+    sound_stream_ctx->voice_handle = MV_PlayRaw
+    (
+        (char *)sound_stream_ctx->audio_windows[0],
+        sound_stream_ctx->current_chunk_size,
+        MixRate,
+        soundps[num],
+        LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
+        soundpr[num],
+        num
+    );
+
+    (void)i;
+    (void)hdr_scratch;
+}
+
+static void FX_ServiceVocStream_ADPCM(int handle)
+{
+    int play_page, decode_page, decoded;
+    long compressed_read;
+
+    compressed_read = 0;
+    decoded = 0;
+
+    if (MV_VoicePlaying(sound_stream_ctx->voice_handle) != 0)
+    {
+        return;
+    }
+
+    // Page that is going to be played now
+    play_page = sound_stream_ctx->active_page ^ 1;
+    // Page that is NOT playing and may be overwritten
+    decode_page = play_page ^ 1;
+
+    if (sound_stream_ctx->next_chunk_size <= 0)
+    {
+        // Nothing decoded ahead: loop or stop
+        if (soundm[handle] & 1)
+        {
+            sound_stream_ctx->adpcm_nibble_pos = 8;
+            sound_stream_ctx->adpcm_resample_acc = 0;
+            klseek_stream(sound_stream_ctx->file_handle,
+                          sound_stream_ctx->data_start_offset, SEEK_SET);
+            sound_stream_ctx->remaining_bytes = soundsiz[handle] -
+                                                sound_stream_ctx->data_start_offset;
+            sound_stream_ctx->adpcm_block_pos = 0;
+            sound_stream_ctx->adpcm_block_payload_size = 0;
+            sound_stream_ctx->next_chunk_size = 0;
+        }
+        else
+        {
+            FX_StopVocStream();
+            return;
+        }
+    }
+
+    // Start the already-decoded page
+    sound_stream_ctx->current_chunk_size = sound_stream_ctx->next_chunk_size;
+    sound_stream_ctx->voice_handle = MV_PlayRaw
+    (
+        (char *)sound_stream_ctx->audio_windows[play_page],
+        sound_stream_ctx->current_chunk_size,
+        MixRate,
+        0,
+        LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
+        soundpr[handle],
+        handle
+    );
+    sound_stream_ctx->active_page = play_page;
+
+    /* Decode the next page into the NON-playing buffer */
+    memset(sound_stream_ctx->audio_windows[decode_page], 128, 16384);
+    decoded = MV_DecompressPage
+    (
+        sound_stream_ctx,
+        sound_stream_ctx->audio_windows[decode_page],
+        16384,
+        &compressed_read
+    );
+    sound_stream_ctx->next_chunk_size = decoded;
 }
 
 //===============================================================================
@@ -224,7 +578,7 @@ static void MV_AnalyzeAndSetupStream(sound_stream_t *ctx, long file_len, long __
         
         if (header_buffer[*out_header_offset] == 0x01) 
         {
-            char voc_rate_byte = header_buffer[*out_header_offset + 4];
+            voc_rate_byte = header_buffer[*out_header_offset + 4];
             ctx->sample_rate = 1000000L / (256 - voc_rate_byte);
             *out_header_offset += 6; 
         }
@@ -292,95 +646,44 @@ static void MV_AnalyzeAndSetupStream(sound_stream_t *ctx, long file_len, long __
 
 //====================================================================================
 // A helper decompression function called from "soundstream" and "FX_ServiceVocStream"
-//====================================================================================
-static int MV_DecompressPage(sound_stream_t *ctx, unsigned char *output_buffer8, int bytes_to_read)
+// Keeps decoding across block boundaries. Returns PCM8 samples written.
+// *compressed_read receives the total compressed bytes consumed.
+//===============================================================================
+static int MV_DecompressPage(sound_stream_t *ctx, unsigned char *output_buffer8, int bytes_to_read, long *compressed_read)
 {
-    int out_samples, p_pos, shift, code;
-    int bytes_to_fetch, actual_file_read, target_samples;
-    signed short sample_calced;        // Strictly signed short to force SAR sign-extension
-    unsigned char current_byte;
-    unsigned char packed_buffer[4096]; // Array size layout brackets explicitly locked!
+    int total_out;
+    int got;
+    long consumed;
 
-    out_samples = 0;
-    p_pos = 0;
+    total_out = 0;
+    *compressed_read = 0;
 
-    // CRITICAL PHASE SYNC FIX: 
-    // Force reset the Bresenham timing accumulator strictly at the start of EVERY page
-    // This eliminates micro-shifts between double-buffered chunks, reducing DC-offset and clicks.
-    ctx->adpcm_resample_acc = 0;
-
-    // Calculate approximate compressed bytes required for this hardware frame pass
-    target_samples = (int)((bytes_to_read * ctx->sample_rate) / MixRate);
-    if (target_samples > 16384) 
+    while (total_out < bytes_to_read && ctx->remaining_bytes > 0)
     {
-        target_samples = 16384;
-    }
+        got = MV_Decomp_ADPCM_DVI_block
+        (
+            ctx,
+            output_buffer8 + total_out,
+            bytes_to_read - total_out,
+            &consumed
+        );
 
-    bytes_to_fetch = (target_samples * ctx->adpcm_bits) >> 3;
-    if (bytes_to_fetch > 4096) 
-    {
-        bytes_to_fetch = 4096;
-    }
-    if (bytes_to_fetch < 128)
-    {
-        bytes_to_fetch = 128;
-    }
+        *compressed_read += consumed;
 
-    actual_file_read = kread_stream(ctx->file_handle, packed_buffer, bytes_to_fetch);
-    if (actual_file_read <= 0) 
-    {
-        return 0;
-    }
-
-    sample_calced = (short)ctx->adpcm_predictor;
-
-    // HIGH-SPEED SYNCHRONOUS BRESENHAM UNPACK LOOP: 
-    while (out_samples < bytes_to_read)
-    {
-        // If we consumed the fetched disk buffer, reload the next piece seamlessly
-        if (p_pos >= actual_file_read)
+        if (got <= 0)
         {
-            actual_file_read = kread_stream(ctx->file_handle, packed_buffer, bytes_to_fetch);
-            if (actual_file_read <= 0)
-            {
-                break; // End of file reached safely
-            }
-            p_pos = 0;
+            break;
         }
-
-        current_byte = packed_buffer[p_pos++];
-
-        // Extract DVI samples from Left to Right (MSB to LSB) matching Audition container format
-        for (shift = 8 - ctx->adpcm_bits; shift >= 0 && out_samples < bytes_to_read; shift -= ctx->adpcm_bits)
-        {
-            code = (current_byte >> shift) & ((1 << ctx->adpcm_bits) - 1);
-
-            sample_calced = (short)DecodeDviSample
-            (
-                code, 
-                ctx->adpcm_bits, 
-                &ctx->adpcm_predictor, 
-                &ctx->adpcm_step_index
-            );
-
-            // Timeline accumulator steps forward by hardware mixer frequency scale ratio
-            ctx->adpcm_resample_acc += MixRate;
-            while (ctx->adpcm_resample_acc >= ctx->sample_rate && out_samples < bytes_to_read)
-            {
-                // Scale signed 16-bit into unsigned PCM8 (0..255) safely without integer overflow
-                output_buffer8[out_samples++] = (unsigned char)((sample_calced >> 8) + 128);
-                ctx->adpcm_resample_acc -= ctx->sample_rate;
-            }
-        }
+        total_out += got;
     }
 
-    // Security pass: If file ended prematurely, fill the rest with strict hardware PCM8 silence midpoint (128)
-    while (out_samples < bytes_to_read)
+    // Pad remainder with PCM8 silence
+    while (total_out < bytes_to_read)
     {
-        output_buffer8[out_samples++] = 128; 
+        output_buffer8[total_out++] = 128;
     }
 
-    return out_samples;
+    return total_out;
 }
 
 //===============================================================================
@@ -388,13 +691,9 @@ static int MV_DecompressPage(sound_stream_t *ctx, unsigned char *output_buffer8,
 //===============================================================================
 void FX_ServiceVocStream(void)
 {
-    int shadow_page, handle, next_page, bytes_to_fetch;
-    int actual_file_read, out_samples, p_pos, code;
-    int target_samples, shift, sample_calced;
+    // COMPACT C89/C99 VARIABLES ALLOCATION BLOCK AT THE TOP
+    int shadow_page, handle, next_page;
     long bytes_to_read, bytes_read;
-    unsigned char current_byte;
-    unsigned char packed_buffer[4096];
-    unsigned char *output_buffer8;
 
     if (!audio_stream_active || sound_stream_ctx == NULL || !sound_stream_ctx->playing)
     {
@@ -428,7 +727,7 @@ void FX_ServiceVocStream(void)
                 {
                     sound_stream_ctx->remaining_bytes = soundsiz[handle] - audio_header_offset;
                     klseek_stream(sound_stream_ctx->file_handle, audio_header_offset, SEEK_SET);
-                    sound_stream_ctx->next_chunk_size = 16384; 
+                    sound_stream_ctx->next_chunk_size = 16384;
                 }
                 else
                 {
@@ -441,18 +740,18 @@ void FX_ServiceVocStream(void)
             sound_stream_ctx->voice_handle = MV_PlayRaw
             (
                 (char *)sound_stream_ctx->audio_windows[shadow_page],
-                sound_stream_ctx->next_chunk_size, 
+                sound_stream_ctx->next_chunk_size,
                 MixRate,
                 0,
                 LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
-                soundpr[handle], 
+                soundpr[handle],
                 handle
             );
 
             sound_stream_ctx->active_page = shadow_page;
 
             // --- LOOK-AHEAD PRE-FILL BACKGROUND PHASE FOR NEXT FRAME ---
-            next_page = shadow_page ^ 1; 
+            next_page = shadow_page ^ 1;
             bytes_to_read = min(16384L, sound_stream_ctx->remaining_bytes);
 
             memset((void*)sound_stream_ctx->audio_windows[next_page], 0, 16384);
@@ -469,125 +768,10 @@ void FX_ServiceVocStream(void)
             }
         }
     }
-    // BRANCH 2: ORIGINAL OLD PATHWAY ROLLBACK STRICTLY FOR WAV IMA ADPCM TRACKS
+    // BRANCH 2: IMA ADPCM WAV - page-swap service (decodes into the NON-playing page)
     else
     {
-        // Hardware sync check for ADPCM: Trigger pass strictly when active page is done
-        if (MV_VoicePlaying(sound_stream_ctx->voice_handle) == 0)
-        {
-            shadow_page = sound_stream_ctx->active_page ^ 1;
-
-            if (sound_stream_ctx->remaining_bytes <= 0)
-            {
-                if (soundm[handle] & 1) 
-                {
-                    sound_stream_ctx->remaining_bytes = soundsiz[handle] - audio_header_offset;
-                    klseek_stream(sound_stream_ctx->file_handle, audio_header_offset, SEEK_SET);
-                }
-                else
-                {
-                    FX_StopVocStream();
-                    return;
-                }
-            }
-
-            if (sound_stream_ctx->file_handle == -1)
-            {
-                FX_StopVocStream();
-                return;
-            }
-
-            if (sound_stream_ctx->current_chunk_size <= 0 || sound_stream_ctx->current_chunk_size > 16384)
-            {
-                return;
-            }
-
-            // OLD ADPCM IMMEDIATELY PLAYS EXECUTED CHUNK BEFORE disk-read BLOCK
-            sound_stream_ctx->voice_handle = MV_PlayRaw
-            (
-                (char *)sound_stream_ctx->audio_windows[shadow_page],
-                sound_stream_ctx->current_chunk_size,
-                MixRate,
-                0,
-                LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
-                soundpr[handle],
-                handle
-            );
-
-            sound_stream_ctx->active_page = shadow_page;
-
-            bytes_to_read = min(16384L, sound_stream_ctx->remaining_bytes);
-            memset((void*)sound_stream_ctx->audio_windows[shadow_page ^ 1], 0, 16384);
-
-            // RUN THE ORIGINAL DECODER SEQUENCES ON THE FLY
-            sound_stream_ctx->adpcm_resample_acc = 0; 
-            output_buffer8 = (unsigned char *)sound_stream_ctx->audio_windows[shadow_page ^ 1];
-            out_samples = 0;
-
-            target_samples = (int)((bytes_to_read * sound_stream_ctx->sample_rate) / MixRate);
-            if (target_samples > 16384)
-            {
-                target_samples = 16384;
-            }
-
-            bytes_to_fetch = ((target_samples * sound_stream_ctx->adpcm_bits) + 7) >> 3;
-            if (bytes_to_fetch > 4096)
-            {
-                bytes_to_fetch = 4096;
-            }
-
-            actual_file_read = kread_stream(sound_stream_ctx->file_handle, packed_buffer, bytes_to_fetch);
-            if (actual_file_read > 0)
-            {
-                p_pos = 0;
-                sample_calced = sound_stream_ctx->adpcm_predictor;
-
-                while (p_pos < actual_file_read && out_samples < target_samples)
-                {
-                    current_byte = packed_buffer[p_pos++];
-
-                    for (shift = 8 - sound_stream_ctx->adpcm_bits; shift >= 0 && out_samples < target_samples; shift -= sound_stream_ctx->adpcm_bits)
-                    {
-                        code = (current_byte >> shift) & ((1 << sound_stream_ctx->adpcm_bits) - 1);
-
-                        sample_calced = (int)DecodeDviSample(
-                            code,
-                            sound_stream_ctx->adpcm_bits,
-                            &sound_stream_ctx->adpcm_predictor,
-                            &sound_stream_ctx->adpcm_step_index
-                        );
-
-                        if (sample_calced > 32000)
-                        {
-                            sample_calced = 32000;
-                        }
-                        if (sample_calced < -32000)
-                        {
-                            sample_calced = -32000;
-                        }
-
-                        output_buffer8[out_samples++] = (unsigned char)((sample_calced + 32768) / 256);
-                    }
-                }
-
-                while (out_samples < bytes_to_read)
-                {
-                    output_buffer8[out_samples++] = 128;
-                }
-
-                bytes_read = bytes_to_read;
-                sound_stream_ctx->current_chunk_size = out_samples;
-            }
-            else
-            {
-                bytes_read = 0;
-            }
-
-            if (bytes_read > 0)
-            {
-                sound_stream_ctx->remaining_bytes -= bytes_read;
-            }
-        }
+        FX_ServiceVocStream_ADPCM(handle);
     }
 }
 
@@ -640,15 +824,15 @@ void soundstream(short num)
     }
 
     // Hardware toggle and state check safety macros
-    if (FXDevice == -1 || NumSoundCards == 0) 
+    if (FXDevice == -1 || NumSoundCards == 0)
     {
         return;
     }
-    if (SoundToggle == 0) 
+    if (SoundToggle == 0)
     {
         return;
     }
-    if (VoiceToggle == 0 && (soundm[num] & 4)) 
+    if (VoiceToggle == 0 && (soundm[num] & 4))
     {
         return;
     }
@@ -681,7 +865,7 @@ void soundstream(short num)
     // === NEW ENCAPSULATED ANALYSIS PIPELINE ===
     klseek_stream(sound_stream_ctx->file_handle, 0L, SEEK_SET);
     kread_stream(sound_stream_ctx->file_handle, header_buffer, 512);
-    
+
     // Extract base target sample frequency scaling layout
     sound_stream_ctx->sample_rate = *(unsigned long *)&header_buffer[0x18];
 
@@ -713,65 +897,10 @@ void soundstream(short num)
     }
     // === END OF DETECTION PIPELINE ===
 
-    // BRANCH 1: ORIGINAL CODE EXECUTION FOR WAV IMA ADPCM TRACKS ONLY
+    // BRANCH 1: IMA ADPCM WAV - full init (parses fmt/data chunks, pre-decodes two pages)
     if (sound_stream_ctx->is_adpcm == 1)
     {
-        // Extract global baseline predictor from file metadata header once on start
-        sound_stream_ctx->adpcm_predictor = (int)(file_header_scratch[0x2A] | (file_header_scratch[0x28] << 8));
-        if (sound_stream_ctx->adpcm_predictor & 0x8000)
-        {
-            sound_stream_ctx->adpcm_predictor |= 0xFFFF;
-        }
-
-        sound_stream_ctx->adpcm_step_index = (int)file_header_scratch[0x2C];
-        if (sound_stream_ctx->adpcm_step_index > 88)
-        {
-            sound_stream_ctx->adpcm_step_index = 88;
-        }
-
-        klseek_stream(sound_stream_ctx->file_handle, audio_header_offset, SEEK_SET);
-        sound_stream_ctx->remaining_bytes = file_len - audio_header_offset;
-        sound_stream_ctx->chunk_size = 16384L;
-        sound_stream_ctx->current_chunk = 0;
-
-        sound_stream_ctx->total_chunks = (sound_stream_ctx->remaining_bytes + sound_stream_ctx->chunk_size - 1) / sound_stream_ctx->chunk_size;
-        if (sound_stream_ctx->total_chunks > 128)
-        {
-            sound_stream_ctx->total_chunks = 128;
-        }
-
-        current_offset = audio_header_offset;
-        for (i = 0; i < sound_stream_ctx->total_chunks; i++)
-        {
-            sound_stream_ctx->chunk_offsets[i] = current_offset;
-            current_offset += sound_stream_ctx->chunk_size;
-        }
-
-        // Replace 0 to 128, to remove the starting clicks and prevent from DC-offset accumulation
-        memset(sound_stream_ctx->audio_windows[0], 128, 16384);
-        memset(sound_stream_ctx->audio_windows[1], 128, 16384);
-
-        // CRITICAL ADAPTIVE INITIAL PRE-FILL (OLD ORIGINAL PATHWAY)
-        // Pre-fill ONLY the first buffer before starting playback
-        bytes_read_1 = MV_DecompressPage(sound_stream_ctx, sound_stream_ctx->audio_windows[0], 16384);
-        // Second buffer will fill during playback frame processing inside service loop
-        sound_stream_ctx->current_chunk_size = bytes_read_1;
-
-        sound_stream_ctx->active_page = 0;
-        sound_stream_ctx->playing = 1;
-        audio_stream_active = 1;
-
-        pitch = soundps[num];
-        sound_stream_ctx->voice_handle = MV_PlayRaw
-        (
-            (char *)sound_stream_ctx->audio_windows[0],
-            sound_stream_ctx->current_chunk_size,
-            MixRate, 
-            pitch, 
-            LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
-            soundpr[num], 
-            num
-        );
+        soundstream_adpcm_init(num, file_len);
     }
     // BRANCH 2: NEW STABLE TRUE PRE-BUFFERING SCHEME FOR UNCOMPRESSED PCM / VOC
     else
@@ -817,10 +946,10 @@ void soundstream(short num)
         (
             (char *)sound_stream_ctx->audio_windows[0],
             sound_stream_ctx->current_chunk_size,
-            MixRate, 
-            pitch, 
+            MixRate,
+            pitch,
             LOUDESTVOLUME, LOUDESTVOLUME, LOUDESTVOLUME,
-            soundpr[num], 
+            soundpr[num],
             num
         );
 
