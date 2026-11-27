@@ -7232,6 +7232,12 @@ void checkcommandline(int argc,char **argv)
                         if (strnicmp(c, "cnvsnd2wavad", 12) == 0)
                         {
                             bch = *(c + 12);
+                            if (bch == '\0' && (i + 1) < argc)
+                            {
+                                bch = argv[i + 1][0];
+                                if (bch >= '2' && bch <= '5' && argv[i + 1][1] == '\0')
+                                    i++; // consume next argument
+                            }
                             if (bch >= '2' && bch <= '5')
                                 cnv_adpcm_bits = bch - '0';
                             else
@@ -7241,10 +7247,16 @@ void checkcommandline(int argc,char **argv)
                         if (strnicmp(c, "cnvadpcmtopcm", 13) == 0)
                         {
                             mch = *(c + 13);
+                            if (mch == '\0' && (i + 1) < argc)
+                            {
+                                mch = argv[i + 1][0];
+                                if ((mch == '0' || mch == '1') && argv[i + 1][1] == '\0')
+                                    i++; // consume next argument
+                            }
                             if (mch == '1')
-                                cnv_pcm_mode = 1; // 1 = RIFF PCM .WAV
+                                cnv_pcm_mode = 1;
                             else
-                                cnv_pcm_mode = 0; // 0 = Creative .VOC (default)
+                                cnv_pcm_mode = 0;
                             break;
                         }
 
