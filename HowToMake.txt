@@ -52,6 +52,10 @@ D07LQ2X.exe
 D07LQ2X is compiled for 386 including all C and asm refactored
 code, so that should run.
 ===========================================================================
+v0.32 changes (November 28, 2026)
+1) Fix IMA/DVI ADPCM WAV 5bits:
+- 5 bit/smp mode is 99% compatible with Adobe Audition 3.0 sound editor;
+===========================================================================
 v0.31 changes (November 27, 2026)
 1) Add full DVI/IMA WAV ADPCM support:
 - stream via "soundstream" while playing ANM files;

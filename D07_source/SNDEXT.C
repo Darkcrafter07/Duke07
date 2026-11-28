@@ -170,7 +170,7 @@ static const int idxAdjADPCMTabDVI2b[] = { -1, 2 };
 static const int idxAdjADPCMTabDVI3b[] = { -1, -1, 1, 2 };
 static const int idxAdjADPCMTabDVI4b[] = { -1, -1, -1, -1, 2, 4, 6, 8 };
 static const int idxAdjADPCMTabDVI5b[] = { -1, -1, -1, -1, -1, -1, -1, -1,
-                                            1,  2,  4,  6,  8, 10, 12, 14 };
+                                            1,  2,  4,  6,  8, 10, 13, 16 };
 
 //===============================================================================
 // Decode_ADPCM_DVI_smp() - Decode one 2, 3, 4 or 5-bit IMA ADPCM sample
